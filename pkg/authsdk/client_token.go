@@ -47,22 +47,6 @@ func (c *SDKClient) ClientCredentialsGrant(
 	return c.requestToken(ctx, data)
 }
 
-// MFAOTPGrant completes MFA authentication using a TOTP code or backup code.
-func (c *SDKClient) MFAOTPGrant(
-	ctx context.Context,
-	mfaError MFARequiredError,
-	method, otpCode string,
-) (*TokenResponse, error) {
-	data := url.Values{
-		"grant_type": {"mfa_otp"},
-		"mfa_token":  {mfaError.MFAToken},
-		"method":     {method},
-		"otp_code":   {otpCode},
-	}
-
-	return c.requestToken(ctx, data)
-}
-
 // RevokeToken revokes a refresh token.
 func (c *SDKClient) RevokeToken(ctx context.Context, clientID, token string) error {
 	data := url.Values{

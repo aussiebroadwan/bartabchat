@@ -21,11 +21,11 @@ type TokenHandler struct {
 // ServeHTTP godoc
 //
 //	@Summary		OAuth2 Token Endpoint
-//	@Description	Issues access and refresh tokens using OAuth2 grant types (authorization_code, refresh_token, client_credentials, mfa_otp).
+//	@Description	Issues access and refresh tokens using OAuth2 grant types (authorization_code, refresh_token, client_credentials).
 //	@Tags			OAuth2
 //	@Accept			application/x-www-form-urlencoded
 //	@Produce		json
-//	@Param			grant_type		formData	string					true	"Grant type"	Enums(authorization_code, refresh_token, client_credentials, mfa_otp)
+//	@Param			grant_type		formData	string					true	"Grant type"	Enums(authorization_code, refresh_token, client_credentials)
 //	@Param			code			formData	string					false	"Authorization code (required for authorization_code grant)"
 //	@Param			redirect_uri	formData	string					false	"Redirect URI (required for authorization_code grant)"
 //	@Param			code_verifier	formData	string					false	"PKCE code_verifier (required when PKCE was used)"
@@ -33,9 +33,6 @@ type TokenHandler struct {
 //	@Param			client_id		formData	string					true	"Client identifier (required for all grants)"
 //	@Param			client_secret	formData	string					false	"Client secret (required for confidential clients)"
 //	@Param			scope			formData	string					false	"Space-delimited list of scopes"
-//	@Param			mfa_token		formData	string					false	"MFA token (required for mfa_otp grant)"
-//	@Param			method			formData	string					false	"MFA method (required for mfa_otp grant) - totp or backup_codes"
-//	@Param			otp_code		formData	string					false	"OTP code (required for mfa_otp grant)"
 //	@Success		200				{object}	authsdk.TokenResponse	"access_token, refresh_token, token_type, expires_in, scope"
 //	@Failure		400				{object}	authsdk.ErrorResponse	"error, error_description"
 //	@Failure		401				{object}	authsdk.ErrorResponse	"error, error_description"
@@ -65,8 +62,6 @@ func (h *TokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleAuthorizationCodeGrant(w, r, r.Form)
 	case "refresh_token":
 		h.handleRefreshGrant(w, r, r.Form)
-	case "mfa_otp":
-		h.handleMFAOTPGrant(w, r, r.Form)
 	case "client_credentials":
 		h.handleClientCredentialsGrant(w, r, r.Form)
 	default:
@@ -146,51 +141,6 @@ func (h *TokenHandler) handleRefreshGrant(w http.ResponseWriter, r *http.Request
 			authsdk.ErrInvalidScope.WriteError(w)
 		default:
 			log.Error("refresh grant failed", "err", err)
-			authsdk.ErrServerError.WriteError(w)
-		}
-		return
-	}
-
-	response := authsdk.TokenResponse{
-		AccessToken:  pair.AccessToken,
-		RefreshToken: pair.RefreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(pair.ExpiresIn.Seconds()),
-		Scope:        strings.TrimSpace(pair.Scope),
-	}
-
-	httpx.NoCache(w)
-	httpx.WriteJSON(w, http.StatusOK, response)
-}
-
-func (h *TokenHandler) handleMFAOTPGrant(w http.ResponseWriter, r *http.Request, form url.Values) {
-	ctx := r.Context()
-	log := slogx.FromContext(ctx)
-
-	mfaToken := strings.TrimSpace(form.Get("mfa_token"))
-	method := strings.TrimSpace(form.Get("method"))
-	otpCode := strings.TrimSpace(form.Get("otp_code"))
-
-	if mfaToken == "" || method == "" || otpCode == "" {
-		authsdk.ErrInvalidRequest.WriteError(w)
-		return
-	}
-
-	pair, err := h.TokenService.ExchangeMFAOTP(ctx, mfaToken, method, otpCode)
-	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrTooManyAttempts):
-			log.Warn("MFA OTP grant failed: too many attempts", "mfa_token", mfaToken)
-			authsdk.NewOAuth2Error(
-				http.StatusUnauthorized,
-				"invalid_grant",
-				"Too many failed attempts. MFA session has been invalidated.",
-			).WriteError(w)
-		case errors.Is(err, service.ErrInvalidGrant):
-			log.Warn("MFA OTP grant failed: invalid grant", "err", err)
-			authsdk.ErrInvalidGrant.WriteError(w)
-		default:
-			log.Error("MFA OTP grant failed", "err", err)
 			authsdk.ErrServerError.WriteError(w)
 		}
 		return

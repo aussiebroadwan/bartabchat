@@ -43,14 +43,19 @@ and refresh:
 
 The SDK supports multiple OAuth2 grant types:
 
-Password Grant:
+Authorization Code Flow with Password (with MFA):
 
-	session, err := client.AuthenticateWithPassword(ctx, clientID, username, password, scopes)
+	// Step 1: Initiate authorization with password
+	pkce, _ := authsdk.GeneratePKCEChallenge()
+	code, err := client.AuthorizeWithPassword(ctx, clientID, redirectURI, username, password, scopes, pkce)
 	if mfaErr, ok := err.(*authsdk.MFARequiredError); ok {
-		// MFA required, complete with TOTP code
-		tokenResp, err := client.MFAOTPGrant(ctx, *mfaErr, "totp", otpCode)
-		session = client.NewSessionFromTokens(clientID, tokenResp.AccessToken, ...)
+		// Step 2: Complete MFA challenge to get authorization code
+		code, err = client.AuthorizeWithPasswordAndMFA(ctx, clientID, redirectURI, *mfaErr, "totp", otpCode, scopes, pkce)
 	}
+
+	// Step 3: Exchange authorization code for tokens
+	tokenResp, err := client.ExchangeAuthorizationCode(ctx, clientID, clientSecret, code, redirectURI, pkce.Verifier)
+	session := client.NewSessionFromTokens(clientID, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.Scope, tokenResp.ExpiresIn)
 
 Client Credentials Grant (M2M):
 

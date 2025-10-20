@@ -1225,7 +1225,7 @@ const docTemplate = `{
         },
         "/v1/oauth2/token": {
             "post": {
-                "description": "Issues access and refresh tokens using OAuth2 grant types (authorization_code, refresh_token, client_credentials, mfa_otp).",
+                "description": "Issues access and refresh tokens using OAuth2 grant types (authorization_code, refresh_token, client_credentials).",
                 "consumes": [
                     "application/x-www-form-urlencoded"
                 ],
@@ -1241,8 +1241,7 @@ const docTemplate = `{
                         "enum": [
                             "authorization_code",
                             "refresh_token",
-                            "client_credentials",
-                            "mfa_otp"
+                            "client_credentials"
                         ],
                         "type": "string",
                         "description": "Grant type",
@@ -1291,24 +1290,6 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Space-delimited list of scopes",
                         "name": "scope",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "MFA token (required for mfa_otp grant)",
-                        "name": "mfa_token",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "MFA method (required for mfa_otp grant) - totp or backup_codes",
-                        "name": "method",
-                        "in": "formData"
-                    },
-                    {
-                        "type": "string",
-                        "description": "OTP code (required for mfa_otp grant)",
-                        "name": "otp_code",
                         "in": "formData"
                     }
                 ],

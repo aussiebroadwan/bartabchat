@@ -1255,14 +1255,13 @@ paths:
       consumes:
       - application/x-www-form-urlencoded
       description: Issues access and refresh tokens using OAuth2 grant types (authorization_code,
-        refresh_token, client_credentials, mfa_otp).
+        refresh_token, client_credentials).
       parameters:
       - description: Grant type
         enum:
         - authorization_code
         - refresh_token
         - client_credentials
-        - mfa_otp
         in: formData
         name: grant_type
         required: true
@@ -1295,18 +1294,6 @@ paths:
       - description: Space-delimited list of scopes
         in: formData
         name: scope
-        type: string
-      - description: MFA token (required for mfa_otp grant)
-        in: formData
-        name: mfa_token
-        type: string
-      - description: MFA method (required for mfa_otp grant) - totp or backup_codes
-        in: formData
-        name: method
-        type: string
-      - description: OTP code (required for mfa_otp grant)
-        in: formData
-        name: otp_code
         type: string
       produces:
       - application/json

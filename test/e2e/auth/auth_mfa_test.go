@@ -44,7 +44,7 @@ func TestMFAEnrollmentAndAuthentication(t *testing.T) {
 	t.Logf("Received MFA challenge: %+v", challenge)
 
 	// Complete MFA challenge with TOTP code
-	mfaTokenResp := completeMFAWithTOTP(t, client, challenge, user)
+	mfaTokenResp := completeMFAWithTOTP(t, client, clientID, clientSecret, challenge, user, []string{"profile:read"})
 	t.Logf("Successfully authenticated with TOTP")
 
 	// Verify the token has correct AMR
@@ -60,7 +60,7 @@ func TestMFAEnrollmentAndAuthentication(t *testing.T) {
 
 	// Test authentication with backup code
 	challenge2 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	backupTokenResp := completeMFAWithBackupCode(t, client, challenge2, backupCode)
+	backupTokenResp := completeMFAWithBackupCode(t, client, clientID, clientSecret, challenge2, backupCode, []string{"profile:read"})
 	t.Logf("Successfully authenticated with backup code")
 
 	// Verify backup code AMR (should also be "mfa")
@@ -76,8 +76,11 @@ func TestMFAEnrollmentAndAuthentication(t *testing.T) {
 
 	// Try to reuse the same backup code (should fail)
 	challenge3 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	_, err = client.MFAOTPGrant(t.Context(), *challenge3, "backup_codes", backupCode)
 
+	pkce3, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge3, "backup_codes", backupCode, []string{"profile:read"}, pkce3)
 	require.Error(t, err, "Should not be able to reuse backup code")
 
 	t.Logf("Backup code reuse correctly rejected")
@@ -97,7 +100,7 @@ func TestMFARegenerateBackupCodes(t *testing.T) {
 
 	// Authenticate with MFA to get a fresh token
 	challenge := authenticateWithMFA(t, client, clientID, user, []string{"profile:read", "profile:write"})
-	tokenResp := completeMFAWithTOTP(t, client, challenge, user)
+	tokenResp := completeMFAWithTOTP(t, client, clientID, clientSecret, challenge, user, []string{"profile:read", "profile:write"})
 	userSession := client.NewSessionFromTokens(clientID, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.Scope, tokenResp.ExpiresIn)
 
 	// Regenerate backup codes
@@ -111,16 +114,19 @@ func TestMFARegenerateBackupCodes(t *testing.T) {
 
 	// Verify old backup code no longer works
 	challenge2 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	_, err = client.MFAOTPGrant(t.Context(), *challenge2, "backup_codes", oldBackupCode)
 
+	pkce2, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge2, "backup_codes", oldBackupCode, []string{"profile:read"}, pkce2)
 	require.Error(t, err, "Old backup code should not work after regeneration")
 
 	// Verify new backup code works
 	challenge3 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
 	newBackupCode := backupResp.Codes[0]
-	_, err = client.MFAOTPGrant(t.Context(), *challenge3, "backup_codes", newBackupCode)
+	tokenResp2 := completeMFAWithBackupCode(t, client, clientID, clientSecret, challenge3, newBackupCode, []string{"profile:read"})
 
-	require.NoError(t, err, "New backup code should work")
+	require.NotEmpty(t, tokenResp2.AccessToken)
 
 	t.Logf("New backup code works correctly")
 }
@@ -142,7 +148,7 @@ func TestMFARemoval(t *testing.T) {
 
 	// Complete MFA to get a fresh token
 	challenge := authenticateWithMFA(t, client, clientID, user, []string{"profile:read", "profile:write"})
-	mfaTokenResp := completeMFAWithTOTP(t, client, challenge, user)
+	mfaTokenResp := completeMFAWithTOTP(t, client, clientID, clientSecret, challenge, user, []string{"profile:read", "profile:write"})
 	mfaSession := client.NewSessionFromTokens(clientID, mfaTokenResp.AccessToken, mfaTokenResp.RefreshToken, mfaTokenResp.Scope, mfaTokenResp.ExpiresIn)
 
 	// Remove MFA (requires TOTP verification)
@@ -187,14 +193,22 @@ func TestMFAInvalidScenarios(t *testing.T) {
 
 	// Test 1: Invalid TOTP code
 	challenge := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	_, err := client.MFAOTPGrant(t.Context(), *challenge, "totp", "000000")
+
+	pkce1, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", "000000", []string{"profile:read"}, pkce1)
 	require.Error(t, err, "Should reject invalid TOTP code")
 
 	t.Logf("Invalid TOTP code correctly rejected")
 
 	// Test 2: Invalid MFA token
 	invalidMFAErr := authsdk.MFARequiredError{MFAToken: "invalid-mfa-token", Methods: []string{"totp"}}
-	_, err = client.MFAOTPGrant(t.Context(), invalidMFAErr, "totp", "000000")
+
+	pkce2, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", invalidMFAErr, "totp", "000000", []string{"profile:read"}, pkce2)
 	require.Error(t, err, "Should reject invalid MFA token")
 
 	t.Logf("Invalid MFA token correctly rejected")
@@ -205,13 +219,13 @@ func TestMFAInvalidScenarios(t *testing.T) {
 	// Test 4: Try to verify TOTP without enrolling first
 	user2 := createMFATestUser(t, client, clientID, clientSecret, "nousertotp", "NoUser123!")
 
-	pkce2, err := authsdk.GeneratePKCEChallenge()
+	pkce3, err := authsdk.GeneratePKCEChallenge()
 	require.NoError(t, err)
 
-	code2, err := client.AuthorizeWithPassword(t.Context(), clientID, "http://localhost/callback", user2.Username, user2.Password, []string{"profile:read", "profile:write"}, pkce2)
+	code2, err := client.AuthorizeWithPassword(t.Context(), clientID, "http://localhost/callback", user2.Username, user2.Password, []string{"profile:read", "profile:write"}, pkce3)
 	require.NoError(t, err)
 
-	tokenResp, err := client.ExchangeAuthorizationCode(t.Context(), clientID, clientSecret, code2, "http://localhost/callback", pkce2.Verifier)
+	tokenResp, err := client.ExchangeAuthorizationCode(t.Context(), clientID, clientSecret, code2, "http://localhost/callback", pkce3.Verifier)
 	require.NoError(t, err)
 
 	user2Session := client.NewSessionFromTokens(clientID, tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.Scope, tokenResp.ExpiresIn)
@@ -235,7 +249,7 @@ func TestMFATokenRefreshPreservesAMR(t *testing.T) {
 
 	// Authenticate with MFA
 	challenge := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	mfaTokenResp := completeMFAWithTOTP(t, client, challenge, user)
+	mfaTokenResp := completeMFAWithTOTP(t, client, clientID, clientSecret, challenge, user, []string{"profile:read"})
 	mfaSession := client.NewSessionFromTokens(clientID, mfaTokenResp.AccessToken, mfaTokenResp.RefreshToken, mfaTokenResp.Scope, mfaTokenResp.ExpiresIn)
 
 	// Verify initial token has pwd + mfa AMR
@@ -365,12 +379,21 @@ func authenticateWithMFA(t *testing.T, client *authsdk.SDKClient, clientID strin
 }
 
 // completeMFAWithTOTP completes an MFA challenge using a TOTP code.
-func completeMFAWithTOTP(t *testing.T, client *authsdk.SDKClient, mfaErr *authsdk.MFARequiredError, user *mfaTestUser) *authsdk.TokenResponse {
+func completeMFAWithTOTP(t *testing.T, client *authsdk.SDKClient, clientID, clientSecret string, mfaErr *authsdk.MFARequiredError, user *mfaTestUser, scopes []string) *authsdk.TokenResponse {
 	t.Helper()
 
 	totpCode := generateTOTP(t, user.TOTPSecret)
-	tokenResp, err := client.MFAOTPGrant(t.Context(), *mfaErr, "totp", totpCode)
 
+	// Generate PKCE for the MFA completion flow
+	pkce, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	// Complete MFA to get authorization code
+	code, err := client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *mfaErr, "totp", totpCode, scopes, pkce)
+	require.NoError(t, err)
+
+	// Exchange authorization code for tokens
+	tokenResp, err := client.ExchangeAuthorizationCode(t.Context(), clientID, clientSecret, code, "http://localhost/callback", pkce.Verifier)
 	require.NoError(t, err)
 	require.NotEmpty(t, tokenResp.AccessToken)
 	require.NotEmpty(t, tokenResp.RefreshToken)
@@ -381,11 +404,19 @@ func completeMFAWithTOTP(t *testing.T, client *authsdk.SDKClient, mfaErr *authsd
 }
 
 // completeMFAWithBackupCode completes an MFA challenge using a backup code.
-func completeMFAWithBackupCode(t *testing.T, client *authsdk.SDKClient, mfaErr *authsdk.MFARequiredError, backupCode string) *authsdk.TokenResponse {
+func completeMFAWithBackupCode(t *testing.T, client *authsdk.SDKClient, clientID, clientSecret string, mfaErr *authsdk.MFARequiredError, backupCode string, scopes []string) *authsdk.TokenResponse {
 	t.Helper()
 
-	tokenResp, err := client.MFAOTPGrant(t.Context(), *mfaErr, "backup_codes", backupCode)
+	// Generate PKCE for the MFA completion flow
+	pkce, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
 
+	// Complete MFA to get authorization code
+	code, err := client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *mfaErr, "backup_codes", backupCode, scopes, pkce)
+	require.NoError(t, err)
+
+	// Exchange authorization code for tokens
+	tokenResp, err := client.ExchangeAuthorizationCode(t.Context(), clientID, clientSecret, code, "http://localhost/callback", pkce.Verifier)
 	require.NoError(t, err)
 	require.NotEmpty(t, tokenResp.AccessToken)
 	require.NotEmpty(t, tokenResp.RefreshToken)
@@ -429,7 +460,11 @@ func TestMFAAttemptLimiting(t *testing.T) {
 	// Make 5 failed attempts with invalid TOTP codes
 	for i := 1; i <= 5; i++ {
 		invalidCode := "000000"
-		_, err := client.MFAOTPGrant(t.Context(), *challenge, "totp", invalidCode)
+
+		pkce, err := authsdk.GeneratePKCEChallenge()
+		require.NoError(t, err)
+
+		_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", invalidCode, []string{"profile:read"}, pkce)
 		require.Error(t, err, "Attempt %d: Should reject invalid TOTP code", i)
 
 		// First 4 attempts should get generic invalid_grant error
@@ -441,22 +476,27 @@ func TestMFAAttemptLimiting(t *testing.T) {
 	t.Logf("Completed 5 failed attempts")
 
 	// The 6th attempt should fail with "too many attempts" error
-	_, err := client.MFAOTPGrant(t.Context(), *challenge, "totp", "000000")
+	pkce6, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", "000000", []string{"profile:read"}, pkce6)
 	require.Error(t, err, "Should reject attempt after max attempts exceeded")
-	require.Contains(t, err.Error(), "invalid_grant", "Should return invalid_grant error")
+	require.Contains(t, err.Error(), "authorization failed", "Should return authorization error")
 	t.Logf("6th attempt correctly rejected with: %v", err)
 
 	// Verify that even with a valid TOTP code, the session is now invalidated
 	validCode := generateTOTP(t, user.TOTPSecret)
-	_, err = client.MFAOTPGrant(t.Context(), *challenge, "totp", validCode)
+
+	pkceValid, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", validCode, []string{"profile:read"}, pkceValid)
 	require.Error(t, err, "Should reject even valid code after session invalidated")
 	t.Logf("Valid TOTP code correctly rejected after session invalidation")
 
 	// Verify we can start a fresh MFA session and it works
 	challenge2 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	validCode2 := generateTOTP(t, user.TOTPSecret)
-	tokenResp, err := client.MFAOTPGrant(t.Context(), *challenge2, "totp", validCode2)
-	require.NoError(t, err, "Should succeed with fresh MFA session")
+	tokenResp := completeMFAWithTOTP(t, client, clientID, clientSecret, challenge2, user, []string{"profile:read"})
 	require.NotEmpty(t, tokenResp.AccessToken, "Should receive access token")
 	t.Logf("Fresh MFA session works correctly after previous session was invalidated")
 }
@@ -480,20 +520,26 @@ func TestMFAAttemptLimitingWithBackupCode(t *testing.T) {
 	// Make 5 failed attempts with invalid backup codes
 	for i := 1; i <= 5; i++ {
 		invalidCode := "INVALID-BACKUP-CODE"
-		_, err := client.MFAOTPGrant(t.Context(), *challenge, "backup_codes", invalidCode)
+
+		pkce, err := authsdk.GeneratePKCEChallenge()
+		require.NoError(t, err)
+
+		_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "backup_codes", invalidCode, []string{"profile:read"}, pkce)
 		require.Error(t, err, "Attempt %d: Should reject invalid backup code", i)
 		t.Logf("Backup code attempt %d failed as expected", i)
 	}
 
 	// The 6th attempt should fail even with valid backup code
-	_, err := client.MFAOTPGrant(t.Context(), *challenge, "backup_codes", validBackupCode)
+	pkce6, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "backup_codes", validBackupCode, []string{"profile:read"}, pkce6)
 	require.Error(t, err, "Should reject even valid backup code after max attempts")
 	t.Logf("Valid backup code correctly rejected after too many attempts")
 
 	// Verify the backup code still works with a fresh MFA session
 	challenge2 := authenticateWithMFA(t, client, clientID, user, []string{"profile:read"})
-	tokenResp, err := client.MFAOTPGrant(t.Context(), *challenge2, "backup_codes", validBackupCode)
-	require.NoError(t, err, "Should succeed with fresh MFA session")
+	tokenResp := completeMFAWithBackupCode(t, client, clientID, clientSecret, challenge2, validBackupCode, []string{"profile:read"})
 	require.NotEmpty(t, tokenResp.AccessToken, "Should receive access token")
 	t.Logf("Backup code works correctly with fresh MFA session")
 }
@@ -515,14 +561,20 @@ func TestMFAAttemptLimitingMixedMethods(t *testing.T) {
 
 	// Make 3 failed attempts with invalid TOTP
 	for i := 1; i <= 3; i++ {
-		_, err := client.MFAOTPGrant(t.Context(), *challenge, "totp", "000000")
+		pkce, err := authsdk.GeneratePKCEChallenge()
+		require.NoError(t, err)
+
+		_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", "000000", []string{"profile:read"}, pkce)
 		require.Error(t, err, "TOTP attempt %d should fail", i)
 		t.Logf("TOTP attempt %d failed", i)
 	}
 
 	// Make 2 failed attempts with invalid backup codes
 	for i := 1; i <= 2; i++ {
-		_, err := client.MFAOTPGrant(t.Context(), *challenge, "backup_codes", "INVALID")
+		pkce, err := authsdk.GeneratePKCEChallenge()
+		require.NoError(t, err)
+
+		_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "backup_codes", "INVALID", []string{"profile:read"}, pkce)
 		require.Error(t, err, "Backup code attempt %d should fail", i)
 		t.Logf("Backup code attempt %d failed", i)
 	}
@@ -531,7 +583,11 @@ func TestMFAAttemptLimitingMixedMethods(t *testing.T) {
 
 	// The 6th attempt should fail regardless of method
 	validCode := generateTOTP(t, user.TOTPSecret)
-	_, err := client.MFAOTPGrant(t.Context(), *challenge, "totp", validCode)
+
+	pkce6, err := authsdk.GeneratePKCEChallenge()
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeWithPasswordAndMFA(t.Context(), clientID, "http://localhost/callback", *challenge, "totp", validCode, []string{"profile:read"}, pkce6)
 	require.Error(t, err, "Should reject valid TOTP after 5 mixed attempts")
 	t.Logf("Session correctly invalidated after mixed method attempts")
 }
