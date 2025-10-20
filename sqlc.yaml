@@ -1,0 +1,9 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    schema: "internal/auth/store/drivers/sqlite/migrations"
+    queries: "internal/auth/store/drivers/sqlite/queries"
+    gen:
+      go:
+        package: "gen"
+        out: "internal/auth/store/drivers/sqlite/gen"

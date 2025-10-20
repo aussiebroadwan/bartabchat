@@ -1,1 +1,20 @@
 .DS_Store
+
+# Build Outputs
+/bin/*
+!/bin/.gitkeep
+
+# Test logs and scripts
+/debug/
+/*.test
+/*.log
+/TODO.md
+
+# Agentic Coding Files
+/.claude
+CLAUDE.md
+/.opencode
+AGENTS.md
+
+# Local environment variables
+.env.local

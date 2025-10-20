@@ -1,0 +1,1405 @@
+basePath: /
+definitions:
+  authsdk.BackupCodesRegenerateRequest:
+    properties:
+      code:
+        description: 6-digit TOTP code for verification
+        type: string
+    type: object
+  authsdk.BackupCodesResponse:
+    properties:
+      codes:
+        items:
+          type: string
+        type: array
+    type: object
+  authsdk.BootstrapRequest:
+    properties:
+      admin_password:
+        description: AdminPassword is the password for the admin user (8-128 chars)
+        type: string
+      admin_preferred_name:
+        description: AdminPreferredName is the display name for the admin user (max
+          64 chars)
+        type: string
+      admin_username:
+        description: AdminUsername is the username for the initial admin user (3-32
+          chars, alphanumeric with _ or -)
+        type: string
+      client_name:
+        description: ClientName is the name for the initial OAuth2 client (max 100
+          chars, alphanumeric with _ or -)
+        type: string
+      client_scopes:
+        description: ClientScopes is a space-delimited list of scopes for the client
+          (e.g., ["profile:read", "users:write"])
+        items:
+          type: string
+        type: array
+      roles:
+        description: Roles is a list of role definitions to create during bootstrap
+          (must include "admin" role)
+        items:
+          $ref: '#/definitions/authsdk.RoleDefinition'
+        type: array
+    type: object
+  authsdk.BootstrapResponse:
+    properties:
+      admin_user_id:
+        description: AdminUserID is the unique identifier of the created admin user
+        type: string
+      client_id:
+        description: ClientID is the unique identifier of the created OAuth2 client
+        type: string
+      client_secret:
+        description: ClientSecret is the plaintext secret for the created confidential
+          client (only returned once)
+        type: string
+    type: object
+  authsdk.ClientInfo:
+    properties:
+      created_at:
+        description: CreatedAt is the timestamp when the client was created (RFC3339
+          format)
+        type: string
+      has_secret:
+        description: HasSecret indicates whether this client has a secret (confidential
+          client)
+        type: boolean
+      id:
+        description: ID is the unique identifier for the client
+        type: string
+      name:
+        description: Name is the human-readable name of the client
+        type: string
+      protected:
+        description: Protected indicates whether this client is protected from deletion
+        type: boolean
+      scopes:
+        description: Scopes is the list of scopes this client can grant
+        items:
+          type: string
+        type: array
+    type: object
+  authsdk.CreateClientRequest:
+    properties:
+      confidential:
+        description: |-
+          Confidential indicates whether to create a confidential client with a secret.
+          If true, a secret will be auto-generated and returned once.
+          If false, creates a public client (no secret, cannot use client_credentials grant).
+        type: boolean
+      name:
+        description: Name is the human-readable name for the client
+        type: string
+      scopes:
+        description: Scopes is the list of scopes this client is authorized to grant
+        items:
+          type: string
+        type: array
+    type: object
+  authsdk.CreateClientResponse:
+    properties:
+      client_id:
+        description: ClientID is the unique identifier for the created client
+        type: string
+      client_secret:
+        description: |-
+          ClientSecret is the plaintext secret (only returned once at creation).
+          Will be empty if no secret was provided in the request.
+        type: string
+    type: object
+  authsdk.ErrorResponse:
+    properties:
+      error:
+        description: Error is the OAuth2 error code (e.g., "invalid_request", "invalid_grant")
+        type: string
+      error_description:
+        description: ErrorDescription is a human-readable description of the error
+        type: string
+    type: object
+  authsdk.HealthChecks:
+    properties:
+      database:
+        description: Database indicates the database connection status
+        type: string
+      signer:
+        description: Signer indicates the JWT signing capability status
+        type: string
+    type: object
+  authsdk.HealthResponse:
+    properties:
+      checks:
+        allOf:
+        - $ref: '#/definitions/authsdk.HealthChecks'
+        description: Checks contains readiness check results for critical dependencies
+          (only for /readyz)
+      status:
+        description: Status indicates the overall health status (e.g., "ok")
+        type: string
+      uptime:
+        description: Uptime is the service uptime duration as a string (e.g., "1h23m45s")
+        type: string
+      version:
+        description: Version is the service version string
+        type: string
+    type: object
+  authsdk.InviteRequest:
+    properties:
+      client_id:
+        type: string
+      expires_at:
+        description: epoch time in seconds (1 day from creation if omitted)
+        type: integer
+      reusable:
+        description: default false
+        type: boolean
+      role_id:
+        description: Role to assign to the invited user
+        type: string
+    type: object
+  authsdk.InviteResponse:
+    properties:
+      client_id:
+        type: string
+      expires_at:
+        description: epoch time in seconds
+        type: integer
+      invite_token:
+        type: string
+    type: object
+  authsdk.JWKSResponse:
+    properties:
+      keys:
+        items:
+          $ref: '#/definitions/jwtx.JWK'
+        type: array
+    type: object
+  authsdk.ListClientsResponse:
+    properties:
+      clients:
+        items:
+          $ref: '#/definitions/authsdk.ClientInfo'
+        type: array
+    type: object
+  authsdk.ListRolesResponse:
+    properties:
+      roles:
+        items:
+          $ref: '#/definitions/authsdk.RoleInfo'
+        type: array
+    type: object
+  authsdk.RedeemInviteResponse:
+    properties:
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  authsdk.RoleDefinition:
+    properties:
+      name:
+        description: Name is the role name (e.g., "admin", "user", "readonly")
+        type: string
+      scopes:
+        description: Scopes is a space-delimited list of scopes this role can request
+        items:
+          type: string
+        type: array
+    type: object
+  authsdk.RoleInfo:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+    type: object
+  authsdk.RotateKeyRequest:
+    properties:
+      retire_existing:
+        description: |-
+          RetireExisting will mark current active keys as retired if true.
+          If false, new key is added alongside existing keys.
+        type: boolean
+    type: object
+  authsdk.RotateKeyResponse:
+    properties:
+      active_keys:
+        type: integer
+      new_key:
+        $ref: '#/definitions/authsdk.SigningKeyInfo'
+      retired_keys:
+        items:
+          $ref: '#/definitions/authsdk.SigningKeyInfo'
+        type: array
+    type: object
+  authsdk.SigningKeyInfo:
+    properties:
+      algorithm:
+        description: RS256, ES256, or EdDSA
+        type: string
+      created_at:
+        description: RFC3339 timestamp
+        type: string
+      expires_at:
+        description: RFC3339 timestamp
+        type: string
+      id:
+        description: ULID
+        type: string
+      kid:
+        description: Key identifier in JWKS
+        type: string
+      retired_at:
+        description: RFC3339 timestamp (null if active)
+        type: string
+    type: object
+  authsdk.TOTPEnrollResponse:
+    properties:
+      account:
+        type: string
+      issuer:
+        type: string
+      qr_code:
+        example: otpauth://totp/issuer:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=issuer
+        type: string
+      secret:
+        example: JBSWY3DPEHPK3PXP
+        type: string
+    type: object
+  authsdk.TOTPRemoveRequest:
+    properties:
+      code:
+        description: 6-digit TOTP code for verification
+        type: string
+    type: object
+  authsdk.TOTPVerifyRequest:
+    properties:
+      code:
+        description: 6-digit TOTP code
+        type: string
+    type: object
+  authsdk.TokenResponse:
+    properties:
+      access_token:
+        description: AccessToken is the JWT access token used to authenticate API
+          requests
+        type: string
+      expires_in:
+        description: ExpiresIn is the lifetime in seconds of the access token
+        type: integer
+      refresh_token:
+        description: RefreshToken is the opaque refresh token used to obtain new access
+          tokens
+        type: string
+      scope:
+        description: Scope is the space-delimited list of scopes granted to this token
+        type: string
+      token_type:
+        description: TokenType is always "Bearer" per OAuth2 spec
+        type: string
+    type: object
+  authsdk.UserInfoResponse:
+    properties:
+      preferred_name:
+        description: PreferredName is the user's display name
+        type: string
+      role:
+        description: Role is the name of the user's role
+        type: string
+      user_id:
+        description: UserID is the unique identifier for the user
+        type: string
+      username:
+        description: Username is the user's login username
+        type: string
+    type: object
+  authsdk.ValidationErrorResponse:
+    properties:
+      code:
+        description: Code is the error code (e.g., "validation_error")
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        description: 'Details contains field-specific validation errors (field name:
+          error message)'
+        type: object
+      message:
+        description: Message is a human-readable error message
+        type: string
+    type: object
+  http.IntrospectionResponse:
+    properties:
+      active:
+        type: boolean
+      amr:
+        items:
+          type: string
+        type: array
+      aud:
+        items:
+          type: string
+        type: array
+      client_id:
+        type: string
+      exp:
+        type: integer
+      iat:
+        type: integer
+      iss:
+        type: string
+      jti:
+        type: string
+      nbf:
+        type: integer
+      preferred_name:
+        type: string
+      scope:
+        description: Optional fields (only present when active=true)
+        type: string
+      sid:
+        type: string
+      sub:
+        type: string
+      token_type:
+        type: string
+      username:
+        type: string
+    type: object
+  jwtx.JWK:
+    properties:
+      alg:
+        description: 'algorithm: "RS256"; Later: "EdDSA", etc.'
+        type: string
+      crv:
+        description: Ed25519 / OKP fields and ECDSA / EC fields
+        type: string
+      e:
+        description: exponent (base64url)
+        type: string
+      kid:
+        description: key ID
+        type: string
+      kty:
+        description: 'key type: "RSA"; Later: "OKP", "EC"'
+        type: string
+      "n":
+        description: RSA stuff
+        type: string
+      use:
+        description: 'what we use it for: "sig", "enc"'
+        type: string
+      x:
+        description: base64url encoded public key or x-coordinate
+        type: string
+      "y":
+        description: base64url encoded y-coordinate (ECDSA only)
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    name: AussieBroadWAN Team
+    url: https://github.com/aussiebroadwan/bartab
+  description: |-
+    Attempting to be OAuth2-compliant for our authentication service providing token management with JWT-based access tokens.
+
+    All tokens are signed using RS256 (RSA-SHA256) and can be verified using the JWKS endpoint.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: BarTab Authentication Service API
+  version: 0.1.0
+paths:
+  /.well-known/jwks.json:
+    get:
+      description: Returns the JSON Web Key Set used to verify JWTs.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: The JSON Web Key Set
+          schema:
+            $ref: '#/definitions/authsdk.JWKSResponse'
+      summary: Get JWKS
+      tags:
+      - well-known
+  /livez:
+    get:
+      description: |-
+        Liveness probe endpoint returning basic service health status, uptime, and version information
+        This endpoint always returns 200 OK if the service is running
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status, uptime, version
+          schema:
+            $ref: '#/definitions/authsdk.HealthResponse'
+      summary: Health Check Endpoint
+      tags:
+      - Health
+  /readyz:
+    get:
+      description: |-
+        Readiness probe endpoint returning service health status and checks for critical dependencies
+        Includes uptime, version, and status of database, signer, and cache components
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status, uptime, version, checks
+          schema:
+            $ref: '#/definitions/authsdk.HealthResponse'
+        "503":
+          description: status, uptime, version, checks - service not ready
+          schema:
+            $ref: '#/definitions/authsdk.HealthResponse'
+      summary: Readiness Check Endpoint
+      tags:
+      - Health
+  /v1/bootstrap:
+    post:
+      consumes:
+      - application/json
+      description: Initializes the authentication service by creating the first admin
+        user and OAuth2 client. This endpoint is only available when a bootstrap token
+        is configured and can only be used once.
+      parameters:
+      - description: Bootstrap token for authorization
+        in: header
+        name: X-Bootstrap-Token
+        required: true
+        type: string
+      - description: Bootstrap configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.BootstrapRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Successfully bootstrapped system with admin user and client
+            IDs
+          schema:
+            $ref: '#/definitions/authsdk.BootstrapResponse'
+        "400":
+          description: Invalid request body or validation failed
+          schema:
+            $ref: '#/definitions/authsdk.ValidationErrorResponse'
+        "401":
+          description: Missing or invalid bootstrap token, or system already bootstrapped
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "404":
+          description: Bootstrap not enabled (no token configured)
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Failed to create admin user or client
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      summary: Bootstrap the authentication system
+      tags:
+      - Bootstrap
+  /v1/clients:
+    get:
+      description: Returns all OAuth2 clients. Protected clients are flagged.
+      parameters:
+      - description: Bearer token with admin:read scope
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of clients
+          schema:
+            $ref: '#/definitions/authsdk.ListClientsResponse'
+        "401":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List OAuth2 Clients
+      tags:
+      - Clients
+    post:
+      consumes:
+      - application/json
+      description: Creates a new OAuth2 client. If confidential=true, auto-generates
+        a secret for client_credentials grant.
+      parameters:
+      - description: Bearer token with admin:write scope
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Client creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.CreateClientRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: client_id and client_secret (if confidential)
+          schema:
+            $ref: '#/definitions/authsdk.CreateClientResponse'
+        "400":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create OAuth2 Client
+      tags:
+      - Clients
+  /v1/clients/{id}:
+    delete:
+      description: Deletes an OAuth2 client by ID. Protected clients cannot be deleted.
+      parameters:
+      - description: Bearer token with admin:write scope
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Client ID (ULID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Client deleted successfully
+        "400":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "404":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete OAuth2 Client
+      tags:
+      - Clients
+  /v1/invites/mint:
+    post:
+      consumes:
+      - application/json
+      description: Mint a user invitation token for inviting new users for a specific
+        client application. This is an admin-only operation.
+      parameters:
+      - description: Invite request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.InviteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: invite_token, client_id, expires_at
+          schema:
+            $ref: '#/definitions/authsdk.InviteResponse'
+        "400":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: User Invitation Endpoint
+      tags:
+      - Invitations
+  /v1/invites/redeem:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Redeem an invitation token to create a new user account
+      parameters:
+      - description: Invite token from mint endpoint
+        in: formData
+        name: invite_token
+        required: true
+        type: string
+      - description: Desired username
+        in: formData
+        name: username
+        required: true
+        type: string
+      - description: User password
+        in: formData
+        name: password
+        required: true
+        type: string
+      - description: Client ID the invite was issued for
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: user_id, username
+          schema:
+            $ref: '#/definitions/authsdk.RedeemInviteResponse'
+        "400":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      summary: Redeem Invitation Endpoint
+      tags:
+      - Invitations
+  /v1/keys:
+    get:
+      description: List all signing keys with their status (works in both ephemeral
+        and persistent modes)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/authsdk.SigningKeyInfo'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: Forbidden - requires admin:read scope
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "501":
+          description: Not available in ephemeral mode
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List signing keys
+      tags:
+      - Keys
+  /v1/keys/{kid}/retire:
+    post:
+      description: Mark a specific key as retired without generating a new one (works
+        in both ephemeral and persistent modes)
+      parameters:
+      - description: Key ID to retire
+        in: path
+        name: kid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content - key retired successfully
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: Forbidden - requires admin:write scope
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "404":
+          description: Key not found
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "501":
+          description: Not available in ephemeral mode
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Retire a signing key
+      tags:
+      - Keys
+  /v1/keys/rotate:
+    post:
+      consumes:
+      - application/json
+      description: Generate a new signing key and optionally retire existing keys
+        (works in both ephemeral and persistent modes)
+      parameters:
+      - description: Rotation options
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.RotateKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/authsdk.RotateKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: Forbidden - requires admin:write scope
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Rotate signing keys
+      tags:
+      - Keys
+  /v1/mfa/backup-codes:
+    post:
+      consumes:
+      - application/json
+      description: Regenerates backup codes for the user. Requires TOTP verification.
+      parameters:
+      - description: TOTP code for verification
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.BackupCodesRegenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: New backup codes (shown once)
+          schema:
+            $ref: '#/definitions/authsdk.BackupCodesResponse'
+        "400":
+          description: Invalid TOTP code or request
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Invalid or missing access token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Regenerate backup codes
+      tags:
+      - MFA
+  /v1/mfa/totp:
+    delete:
+      consumes:
+      - application/json
+      description: Removes TOTP MFA for the user. Requires TOTP verification.
+      parameters:
+      - description: TOTP code for verification
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.TOTPRemoveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid TOTP code or request
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Invalid or missing access token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove TOTP MFA
+      tags:
+      - MFA
+  /v1/mfa/totp/enroll:
+    post:
+      description: Generates a TOTP secret for the authenticated user and returns
+        it with a QR code.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: TOTP secret and QR code
+          schema:
+            $ref: '#/definitions/authsdk.TOTPEnrollResponse'
+        "400":
+          description: MFA already enabled
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Invalid or missing access token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Enroll in TOTP MFA
+      tags:
+      - MFA
+  /v1/mfa/totp/verify:
+    post:
+      consumes:
+      - application/json
+      description: Verifies a TOTP code and enables MFA for the user. Returns backup
+        codes.
+      parameters:
+      - description: TOTP code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/authsdk.TOTPVerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Backup codes (shown once)
+          schema:
+            $ref: '#/definitions/authsdk.BackupCodesResponse'
+        "400":
+          description: Invalid TOTP code or request
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: Invalid or missing access token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Verify TOTP code and enable MFA
+      tags:
+      - MFA
+  /v1/oauth2/authorize:
+    get:
+      description: |-
+        Initiates the OAuth2 authorization code flow via GET request. Used for browser redirects.
+        If a valid session exists (cookie or Bearer token), issues authorization code immediately.
+        Otherwise, returns 401 with login_required error.
+
+        **PKCE Support:**
+        - Public clients MUST include code_challenge (defaults to S256 if method omitted)
+        - Confidential clients MAY include code_challenge for additional security
+
+        **Response:**
+        - Success: 302 redirect to redirect_uri with code and state parameters
+        - No session: 401 JSON with login_required error
+        - Error: JSON error response
+      parameters:
+      - default: code
+        description: Must be 'code'
+        in: query
+        name: response_type
+        required: true
+        type: string
+      - description: OAuth2 client identifier
+        in: query
+        name: client_id
+        required: true
+        type: string
+      - description: Callback URI (must match registered redirect URI)
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      - description: Space-delimited list of scopes
+        example: '"profile:read admin:write"'
+        in: query
+        name: scope
+        type: string
+      - description: Opaque value for CSRF protection (recommended)
+        in: query
+        name: state
+        type: string
+      - description: PKCE code challenge (required for public clients)
+        example: '"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"'
+        in: query
+        name: code_challenge
+        type: string
+      - default: S256
+        description: PKCE method (S256 or plain, defaults to S256)
+        enum:
+        - S256
+        - plain
+        in: query
+        name: code_challenge_method
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect to redirect_uri with code and state
+          schema:
+            type: string
+        "400":
+          description: "Invalid request\"\texample({\"error\":\"invalid_request\",\"error_description\":\"missing
+            required parameter\"})"
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: "Unauthorized\"\t\texample({\"error\":\"login_required\",\"error_description\":\"user
+            authentication required\"})"
+          schema:
+            additionalProperties: true
+            type: object
+      summary: OAuth2 authorization endpoint (GET)
+      tags:
+      - OAuth2
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: |-
+        Initiates the OAuth2 authorization code flow via POST request with credentials.
+        Supports three authentication methods:
+        - Session-based: Include session cookie or Bearer token in Authorization header
+        - Username/Password: Submit credentials in POST body
+        - MFA Completion: Submit mfa_token with mfa_method and mfa_code
+
+        **PKCE Support:**
+        - Public clients MUST include code_challenge (defaults to S256 if method omitted)
+        - Confidential clients MAY include code_challenge for additional security
+
+        **Response:**
+        - Success: 302 redirect to redirect_uri with code and state parameters
+        - MFA Required: 409 JSON response with mfa_token and available methods
+        - Error: Either redirect with error parameters or JSON error response
+      parameters:
+      - default: code
+        description: Must be 'code'
+        in: query
+        name: response_type
+        required: true
+        type: string
+      - description: OAuth2 client identifier
+        in: query
+        name: client_id
+        required: true
+        type: string
+      - description: Callback URI (must match registered redirect URI)
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      - description: Space-delimited list of scopes
+        example: '"profile:read admin:write"'
+        in: query
+        name: scope
+        type: string
+      - description: Opaque value for CSRF protection (recommended)
+        in: query
+        name: state
+        type: string
+      - description: PKCE code challenge (required for public clients)
+        example: '"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"'
+        in: query
+        name: code_challenge
+        type: string
+      - default: S256
+        description: PKCE method (S256 or plain, defaults to S256)
+        enum:
+        - S256
+        - plain
+        in: query
+        name: code_challenge_method
+        type: string
+      - description: Username for password authentication
+        in: formData
+        name: username
+        type: string
+      - description: Password for password authentication
+        in: formData
+        name: password
+        type: string
+      - description: MFA token from previous 409 response
+        in: formData
+        name: mfa_token
+        type: string
+      - description: MFA method (totp or backup_codes)
+        enum:
+        - totp
+        - backup_codes
+        in: formData
+        name: mfa_method
+        type: string
+      - description: MFA code (6-digit TOTP or backup code)
+        in: formData
+        name: mfa_code
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect to redirect_uri with code and state
+          schema:
+            type: string
+        "400":
+          description: "Invalid request\"\texample({\"error\":\"invalid_request\",\"error_description\":\"missing
+            required parameter\"})"
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: "Unauthorized\"\t\texample({\"error\":\"login_required\",\"error_description\":\"user
+            authentication required\"})"
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: "MFA required\"\t\texample({\"error\":\"mfa_required\",\"error_description\":\"multi-factor
+            authentication is required\",\"mfa_token\":\"token123\",\"mfa_methods\":[\"totp\",\"backup_codes\"]})"
+          schema:
+            additionalProperties: true
+            type: object
+      summary: OAuth2 authorization endpoint (POST)
+      tags:
+      - OAuth2
+  /v1/oauth2/introspect:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Introspects a token and returns metadata about it (RFC 7662)
+      parameters:
+      - description: The token to introspect
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: Hint about token type (currently only 'access_token' is supported)
+        enum:
+        - access_token
+        in: formData
+        name: token_type_hint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token introspection result
+          headers:
+            Cache-Control:
+              description: no-store
+              type: string
+            Pragma:
+              description: no-cache
+              type: string
+          schema:
+            $ref: '#/definitions/http.IntrospectionResponse'
+        "400":
+          description: error, error_description
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: error, error_description
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: OAuth2 Token Introspection Endpoint
+      tags:
+      - OAuth2
+  /v1/oauth2/revoke:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: |-
+        Revokes a previously issued token (RFC 7009)
+        Currently supports revoking refresh tokens only. Access tokens expire naturally.
+        The endpoint is idempotent and returns 200 OK even for invalid/unknown tokens to prevent token scanning attacks.
+      parameters:
+      - description: The token to revoke
+        in: formData
+        name: token
+        required: true
+        type: string
+      - description: Hint about token type
+        enum:
+        - access_token
+        - refresh_token
+        in: formData
+        name: token_type_hint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token revoked successfully (or was already invalid)
+          headers:
+            Cache-Control:
+              description: no-store
+              type: string
+            Pragma:
+              description: no-cache
+              type: string
+        "400":
+          description: error, error_description
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "405":
+          description: error, error_description
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: OAuth2 Token Revocation Endpoint
+      tags:
+      - OAuth2
+  /v1/oauth2/token:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Issues access and refresh tokens using OAuth2 grant types (authorization_code,
+        refresh_token, client_credentials, mfa_otp).
+      parameters:
+      - description: Grant type
+        enum:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+        - mfa_otp
+        in: formData
+        name: grant_type
+        required: true
+        type: string
+      - description: Authorization code (required for authorization_code grant)
+        in: formData
+        name: code
+        type: string
+      - description: Redirect URI (required for authorization_code grant)
+        in: formData
+        name: redirect_uri
+        type: string
+      - description: PKCE code_verifier (required when PKCE was used)
+        in: formData
+        name: code_verifier
+        type: string
+      - description: Refresh token (required for refresh_token grant)
+        in: formData
+        name: refresh_token
+        type: string
+      - description: Client identifier (required for all grants)
+        in: formData
+        name: client_id
+        required: true
+        type: string
+      - description: Client secret (required for confidential clients)
+        in: formData
+        name: client_secret
+        type: string
+      - description: Space-delimited list of scopes
+        in: formData
+        name: scope
+        type: string
+      - description: MFA token (required for mfa_otp grant)
+        in: formData
+        name: mfa_token
+        type: string
+      - description: MFA method (required for mfa_otp grant) - totp or backup_codes
+        in: formData
+        name: method
+        type: string
+      - description: OTP code (required for mfa_otp grant)
+        in: formData
+        name: otp_code
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: access_token, refresh_token, token_type, expires_in, scope
+          headers:
+            Cache-Control:
+              description: no-store
+              type: string
+            Pragma:
+              description: no-cache
+              type: string
+          schema:
+            $ref: '#/definitions/authsdk.TokenResponse'
+        "400":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "401":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "405":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: error, error_description
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      summary: OAuth2 Token Endpoint
+      tags:
+      - OAuth2
+  /v1/roles:
+    get:
+      description: Returns a list of all available roles in the system. Requires admin:read
+        scope.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of roles
+          schema:
+            $ref: '#/definitions/authsdk.ListRolesResponse'
+        "401":
+          description: Unauthorized - missing or invalid token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "403":
+          description: Forbidden - missing required scope
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all roles
+      tags:
+      - Roles
+  /v1/userinfo:
+    get:
+      description: Returns information about the authenticated user. Requires 'profile:read'
+        scope.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User information (user_id, username, preferred_name, role)
+          schema:
+            $ref: '#/definitions/authsdk.UserInfoResponse'
+        "401":
+          description: Invalid or missing access token
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/authsdk.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user information
+      tags:
+      - OAuth2
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 'JWT access token. Format: "Bearer {token}".'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
