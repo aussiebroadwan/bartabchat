@@ -2,7 +2,6 @@
 
 # Build Outputs
 /bin/*
-!/bin/.gitkeep
 
 # Test logs and scripts
 /debug/
