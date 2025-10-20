@@ -19,6 +19,7 @@ help:
 
 build: # Build the application
 	@echo "Building application..."
+	@mkdir -p ./bin
 	@go build -o bin/auth ./cmd/auth/
 
 test-unit: # Run unit tests this will need to be added to as more packages are added
