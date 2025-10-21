@@ -1,0 +1,321 @@
+---
+title: Media Service
+description: Media upload, storage, retrieval, and caching infrastructure.
+---
+
+## Overview
+
+The Media Service handles all media assets for the platform, acting as a
+mini-CDN for user-uploaded files and images. It manages uploads, generates
+thumbnails, serves content efficiently, and provides token-based access control
+integrated with the Authentication Service.
+
+The service is designed to be storage-agnostic, supporting local filesystem
+storage for MVP with planned support for S3-compatible object storage for
+production deployments.
+
+<Callout type="warn" title="Design In Progress">
+  This specification is based roughly on scribbled notes and ideas from a 
+  couple of drinks. It is not finalized.
+</Callout>
+
+## Responsibilities
+
+- **Media Upload**: Accept and validate file uploads with hash verification
+- **Storage Management**: Persist media using configurable storage adapters
+  (local, S3)
+- **Deduplication**: Detect and reuse identical files based on SHA256 hash
+- **Thumbnail Generation**: Asynchronous thumbnail creation for images
+- **Content Delivery**: Serve media with appropriate caching headers and access
+  control
+- **Access Control**: Validate JWT tokens for private media, support public
+  media URLs
+- **Quarantine**: Admin-controlled soft-delete for inappropriate content
+
+## API Endpoints
+
+### MVP Endpoints
+
+- **`POST /v1/media`**: Upload media file
+- **`GET /v1/media/{id}`**: Retrieve media file
+- **`GET /v1/media/{id}/thumb`**: Retrieve thumbnail (images only)
+- **`HEAD /v1/media/{id}`**: Preflight check for media metadata
+- **`HEAD /v1/media/{id}/thumb`**: Preflight check for thumbnail metadata
+- **`DELETE /v1/media/{id}`**: Hard delete media (admin-only)
+- **`POST /v1/media/{id}/quarantine`**: Soft delete / quarantine (admin-only)
+- **`GET /healthz`**: Liveness probe
+- **`GET /readyz`**: Readiness probe (checks DB and storage driver health)
+- **`GET /.well-known`**: Service discovery and capability advertisement
+
+### Preflight HEAD Requests
+
+The `HEAD` endpoints return the same headers as their `GET` counterparts but
+without the response body. This allows clients to:
+
+- Check if media exists before downloading
+- Retrieve metadata (size, MIME type, resolution, hash) cheaply
+- Pre-warm the cache for subsequent full requests
+
+Example preflight response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: image/jpeg
+Content-Length: 245680
+ETag: "sha256:abc123..."
+X-Media-Width: 1920
+X-Media-Height: 1080
+Cache-Control: public, max-age=31536000
+```
+
+## Upload Flow
+
+### Request Format
+
+Clients upload media via multipart form data:
+
+```http
+POST /v1/media
+Authorization: Bearer <jwt_token>
+Content-Type: multipart/form-data; 
+...
+```
+
+**Parameters:**
+
+- **`file`** (required): The media file to upload
+- **`public`** (optional): If `true`, media can be accessed without
+  authentication (default: `false`)
+
+### Processing Steps
+
+1. **Authentication**: Validate JWT token and check upload permissions
+2. **Rate Limiting**: Enforce per-user upload rate limits
+3. **Stream to Temp**: Stream upload to temporary file to avoid memory pressure
+4. **Validation**: Verify SHA256 hash and MIME type against declared values
+5. **Deduplication Check**: Query database for existing media with same hash
+   and public flag
+   - **Cache Hit**: Return existing media ID, discard temp file
+   - **Cache Miss**: Continue to storage
+6. **Storage**: Move temp file to configured storage driver (local filesystem,
+   S3, etc.)
+7. **Database Entry**: Create media record with metadata (ULID, hash, size,
+   MIME, owner)
+8. **Thumbnail Queue**: For images, enqueue async thumbnail generation job
+9. **Response**: Return media ID and access URL
+
+### Upload Response
+
+```json
+{
+  "media_id": "01HZX3MEDIAULIDXXXXXXXXXXXX",
+  "url": "https://media.example.com/v1/media/01HZX3MEDIAULIDXXXXXXXXXXXX",
+  "thumb_url": "https://media.example.com/v1/media/01HZX3MEDIAULIDXXXXXXXXXXXX/thumb",
+  "etag": "sha256:abc123...",
+  "size": 245680,
+  "mimetype": "image/jpeg"
+}
+```
+
+## Deduplication
+
+The service uses **content-addressed storage** with SHA256 hashes as the
+deduplication key. When a file is uploaded:
+
+1. Compute SHA256 hash of the content
+2. Check database for existing media with matching hash **and** public flag
+3. If found, return existing media ID without storing duplicate data
+
+<Callout title="Important">
+  Public and private media are NOT deduplicated against each
+  other. A file uploaded as private and later uploaded as public will result in
+  two separate database entries, even if they have the same hash. This ensures
+  access control policies remain simple and predictable.
+</Callout>
+
+## Storage Adapters
+
+The Media Service abstracts storage behind a driver interface, allowing
+different backends:
+
+### Local Filesystem (MVP)
+
+- **Storage Path**: Configurable directory (default: `/data/media`)
+- **Structure**: Files stored as `<ulid>.<ext>`, organized in subdirectories
+  by date or hash prefix to avoid filesystem limits
+- **Pros**: Simple, no external dependencies, works with Docker volumes
+- **Cons**: Doesn't scale horizontally, no built-in replication
+
+### S3-Compatible Object Storage (Planned)
+
+- **Providers**: AWS S3, MinIO, DigitalOcean Spaces, Backblaze B2, etc.
+- **Structure**: Objects keyed by ULID with metadata tags
+- **Pros**: Scales horizontally, built-in replication, CDN integration
+- **Cons**: External dependency, potentially higher latency for small files
+
+The storage adapter is selected via configuration:
+
+```yaml
+media:
+  storage:
+    driver: local  # or "s3"
+    local:
+      path: /data/media
+    s3:
+      bucket: bartab-media
+      region: us-east-1
+      endpoint: https://s3.amazonaws.com
+```
+
+## Thumbnail Generation
+
+For image uploads, the service generates thumbnails asynchronously to avoid
+blocking the upload response:
+
+1. **Upload Completes**: Image is stored, media ID returned
+2. **Queue Job**: Thumbnail generation task is queued (in-memory for MVP,
+   Redis/SQS later)
+3. **Worker Processes**: Thumbnail worker resizes image to configured
+   dimensions (e.g., 320x240 max)
+4. **Store Thumbnail**: Thumbnail is stored alongside original with `_thumb`
+   suffix
+5. **Cache Warm**: Original and thumbnail are marked as cacheable
+
+Clients can poll the thumbnail URL with `HEAD` requests to check if generation
+is complete, or optimistically request with a fallback to the original image.
+
+### Thumbnail Configuration
+
+```yaml
+thumbnails:
+  enabled: true
+  max_width: 320
+  max_height: 240
+  quality: 85
+  formats: ["image/jpeg", "image/png", "image/webp"]
+```
+
+## Caching Strategy
+
+Media is inherently cacheable since it's content-addressed and immutable:
+
+- **ETags**: SHA256 hash used as ETag for conditional requests (`If-None-Match`)
+- **Cache Headers**: `Cache-Control: public, max-age=31536000, immutable` for
+  all media
+- **CDN Integration**: Public media can be cached by CDN edge nodes
+- **Client Caching**: Browsers and clients can cache aggressively
+
+Preflight `HEAD` requests can trigger cache warming so subsequent `GET`
+requests are served from memory or disk cache.
+
+## Access Control
+
+### Private Media (Default)
+
+Requires valid JWT token with appropriate scopes:
+
+```http
+GET /v1/media/01HZX3MEDIAULIDXXXXXXXXXXXX
+Authorization: Bearer <jwt_token>
+```
+
+The service validates the token against the Authentication Service's JWKS
+endpoint and checks for required scopes (e.g., `media:read`).
+
+### Public Media
+
+When media is uploaded with `public=true`, it can be accessed without
+authentication:
+
+```http
+GET /v1/media/01HZX3PUBLICMEDIAULIDXXXXXXX
+```
+
+This is useful for:
+
+- User avatars
+- Room icons
+- Publicly shared files
+- Bot-generated content intended for public consumption
+
+Public media URLs can be embedded in websites, shared externally, and cached by
+CDNs without authentication concerns.
+
+## Quarantine and Deletion
+
+### Hard Delete (Admin)
+
+Permanently removes media from storage and database:
+
+```http
+DELETE /v1/media/01HZX3MEDIAULIDXXXXXXXXXXXX
+Authorization: Bearer <admin_jwt_token>
+```
+
+This operation is irreversible and should be used sparingly.
+
+### Soft Delete / Quarantine (Admin)
+
+Marks media as quarantined without deleting it:
+
+```http
+POST /v1/media/01HZX3MEDIAULIDXXXXXXXXXXXX/quarantine
+Authorization: Bearer <admin_jwt_token>
+Content-Type: application/json
+
+{
+  "reason": "Inappropriate content reported by user"
+}
+```
+
+Quarantined media:
+
+- Returns `410 Gone` to client requests
+- Can be restored by admins if flagged incorrectly
+- May be automatically hard-deleted after a retention period
+
+## Retention Policies (Future)
+
+Configurable retention policies will allow automatic cleanup of old or unused
+media:
+
+- **Age-based**: Delete media older than N days with no recent access
+- **Usage-based**: Delete media that hasn't been accessed in N days
+- **Storage-based**: Delete oldest media when storage exceeds threshold
+
+Attempting to access expired media returns `410 Gone`.
+
+## Well-Known Discovery
+
+The `/.well-known` endpoint advertises service capabilities:
+
+```json
+{
+  "base_uri": "https://media.example.com/v1/media",
+  "auth_required": true,
+  "max_upload_size": 10485760,
+  "storage_mode": "local",
+  "thumbnails_enabled": true,
+  "supported_formats": [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "application/pdf"
+  ]
+}
+```
+
+For S3-backed deployments, additional metadata may be included:
+
+```json
+{
+  "storage_mode": "s3",
+  "region": "us-east-1",
+  "cdn_enabled": true
+}
+```
+
+This allows clients to adjust upload behavior based on server capabilities and
+limits.

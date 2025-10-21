@@ -20,7 +20,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
-      <DocsDescription>{page.data.description}</DocsDescription>
+      <DocsDescription className="flex flex-row gap-2 items-center border-b pb-6">{page.data.description}</DocsDescription>
       <DocsBody>
         <MDX
           components={getMDXComponents({

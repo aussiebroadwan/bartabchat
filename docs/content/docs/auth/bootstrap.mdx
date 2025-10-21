@@ -1,0 +1,302 @@
+---
+title: Bootstrap
+description: Initial setup and configuration of the authentication service using
+    the bootstrap endpoint.
+---
+
+## Overview
+
+The bootstrap process is a **one-time setup operation** that initializes the
+authentication service with its first admin user and OAuth2 client. This is 
+necessary because:
+
+- You need an admin user to create other users and clients
+- You need a client to authenticate and get tokens
+- You can't create either without the other already existing
+
+Bootstrapping solves this chicken-and-egg problem by using a special 
+**bootstrap token** that bypasses normal authentication for a single operation.
+
+<Callout type="warning">
+  The bootstrap endpoint only works when the database is **completely empty**. 
+  Once any users or clients exist, the endpoint will reject all requests for 
+  security reasons.
+</Callout>
+
+## Prerequisites
+
+The bootstrap token is set via the `BOOTSTRAP_TOKEN` environment variable when
+starting the auth service. This token is required in the `X-Bootstrap-Token`
+header when calling the bootstrap endpoint.
+
+```bash
+docker compose up --build auth \
+  -e BOOTSTRAP_TOKEN="your-secure-random-token-here" \
+  -e AUTH_ISSUER="https://auth.bartab.example.com"
+```
+
+<Callout type="info">
+  Generate a strong random token for production:
+
+  ```bash
+  openssl rand -hex 32
+  ```
+</Callout>
+
+## What Gets Created
+
+The bootstrap operation creates three types of entities in a single atomic 
+transaction:
+
+| Entity                  | Description                             | Key Details                                                                                                               |
+|-------------------------|-----------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **Roles**               | Role definitions with scope permissions | Must include at least one "admin" role. Each role specifies allowed scopes (e.g., `profile:read`, `admin:write`)          |
+| **Admin User**          | Initial administrator account           | Username, preferred name, and Argon2id-hashed password. Automatically assigned the "admin" role. MFA can be enabled later |
+| **Confidential Client** | OAuth2 client for authentication        | Returns `client_id` and `client_secret` for OAuth2 flows. Client secret is **only shown once**                            |
+
+## Bootstrap Endpoint
+
+**POST** `/v1/bootstrap`
+
+### Request Headers
+
+| Header              | Required | Description                                    |
+|---------------------|----------|------------------------------------------------|
+| `X-Bootstrap-Token` | Yes      | Bootstrap token from `BOOTSTRAP_TOKEN` env var |
+| `Content-Type`      | Yes      | Must be `application/json`                     |
+
+### Request Body
+
+```json
+{
+  "admin_username": "admin",
+  "admin_preferred_name": "Administrator",
+  "admin_password": "SecurePassword123!",
+  "client_name": "test-client",
+  "client_scopes": [
+    "profile:read",
+    "profile:write",
+    "admin:read",
+    "admin:write"
+  ],
+  "roles": [
+    {
+      "name": "admin",
+      "scopes": ["profile:read", "profile:write", "admin:read", "admin:write"]
+    },
+    {
+      "name": "user",
+      "scopes": ["profile:read", "profile:write"]
+    }
+  ]
+}
+```
+
+| Field                  | Type             | Required | Description                                                           |
+|------------------------|------------------|----------|-----------------------------------------------------------------------|
+| `admin_username`.      | string           | Yes      | Username for the admin account (3-32 chars, alphanumeric with _ or -) |
+| `admin_preferred_name` | string           | Yes      | Display name for the admin user (max 64 chars)                        |
+| `admin_password`       | string           | Yes      | Password for the admin account (8-128 chars)                          |
+| `client_name`          | string           | Yes      | Name for the OAuth2 client (max 100 chars, alphanumeric with _ or -)  |
+| `client_scopes`        | string[]         | Yes      | Array of scopes the client can request                                |
+| `roles`                | RoleDefinition[] | Yes      | Array of role definitions (must include "admin" role)                 |
+
+**RoleDefinition:**
+| Field    | Type     | Description                           |
+|----------|----------|---------------------------------------|
+| `name`   | string   | Role name (e.g., "admin", "user")     |
+| `scopes` | string[] | Array of scopes this role can request |
+
+### Success Response
+
+**Status:** `201 Created`
+
+```json
+{
+  "admin_user_id": "user_01HQXYZ12345ABCDEF",
+  "client_id": "client_01HQABC67890GHIJKL",
+  "client_secret": "cs_01HQDEF12345MNOPQRSTUVWXYZ"
+}
+```
+
+<Callout type="warning">
+  The `client_secret` is **only shown once**. Store it securely immediately. You 
+  cannot retrieve it again.
+</Callout>
+
+### Error Responses
+
+**400 Bad Request** - Invalid request format or missing fields
+```json
+{
+  "error": "invalid_request",
+  "error_description": "Missing required field: username"
+}
+```
+
+**403 Forbidden** - Database not empty or invalid token
+```json
+{
+  "error": "access_denied",
+  "error_description": "Bootstrap is only allowed on an empty database"
+}
+```
+
+**409 Conflict** - Database not empty (users or clients exist)
+```json
+{
+  "error": "already_exists",
+  "error_description": "Users or clients already exist"
+}
+```
+
+## Examples
+
+The following examples demonstrate how to call the bootstrap endpoint using 
+either curl or the Go SDK. Both examples create an admin user, a confidential 
+OAuth2 client, and two roles (admin and user).
+
+<Tabs items={['Curl', 'SDK']}>
+  <Tab value="Curl">
+  ```bash
+# Set your bootstrap token
+BOOTSTRAP_TOKEN="your-token-here"
+AUTH_URL="http://localhost:8080"
+
+# Bootstrap the system
+curl -X POST "$AUTH_URL/v1/bootstrap" \
+  -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
+  -d '{
+    "admin_username": "admin",
+    "admin_preferred_name": "Administrator",
+    "admin_password": "SecurePassword123!",
+    "client_name": "test-client",
+    "client_scopes": [
+      "profile:read",
+      "profile:write",
+      "admin:read",
+      "admin:write"
+    ],
+    "roles": [
+      {
+        "name": "admin",
+        "scopes": ["profile:read", "profile:write", "admin:read", "admin:write"]
+      },
+      {
+        "name": "user",
+        "scopes": ["profile:read", "profile:write"]
+      }
+    ]
+  }'
+
+# Response:
+# {
+#   "admin_user_id": "user_01HQXYZ...",
+#   "client_id": "client_01HQABC...",
+#   "client_secret": "cs_01HQDEF..."
+# }
+
+```
+  </Tab>
+  <Tab value="SDK">
+  ```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/aussiebroadwan/bartab/pkg/authsdk"
+)
+
+func main() {
+    authURL := "http://localhost:8080"
+    bootstrapToken := os.Getenv("BOOTSTRAP_TOKEN")
+
+    client := authsdk.NewSDKClient(authURL)
+
+    req := authsdk.BootstrapRequest{
+        AdminUsername:      "admin",
+        AdminPreferredName: "Administrator",
+        AdminPassword:      "SecurePassword123!",
+        ClientName:         "test-client",
+        ClientScopes: []string{
+            "profile:read",
+            "profile:write",
+            "admin:read",
+            "admin:write",
+        },
+        Roles: []authsdk.RoleDefinition{
+            {
+                Name:   "admin",
+                Scopes: []string{
+                  "profile:read", 
+                  "profile:write", 
+                  "admin:read", 
+                  "admin:write",
+                },
+            },
+            {
+                Name:   "user",
+                Scopes: []string{"profile:read", "profile:write"},
+            },
+        },
+    }
+
+    // Bootstrap the system
+    resp, err := client.Bootstrap(context.Background(), bootstrapToken, req)
+    if err != nil {
+        log.Fatalf("Bootstrap failed: %v", err)
+    }
+
+    fmt.Printf("Admin User ID: %s\n", resp.AdminUserID)
+    fmt.Printf("Client ID: %s\n", resp.ClientID)
+    fmt.Printf("Client Secret: %s\n", resp.ClientSecret)
+}
+```
+  </Tab>
+</Tabs>
+
+## After Bootstrap
+
+Once bootstrap completes successfully, you can authenticate using the returned 
+credentials:
+
+| Authentication Method  | Grant Type         | Credentials Required                                      | Use Case                                                    |
+|------------------------|--------------------|-----------------------------------------------------------|-------------------------------------------------------------|
+| **Machine-to-Machine** | Client Credentials | `client_id` + `client_secret`                             | Service-to-service authentication, automated tasks          |
+| **Admin User Login**   | Authorization Code | Admin username + password + `client_id` + `client_secret` | Interactive admin user authentication (confidential client) |
+
+After authenticating, you can perform admin operations:
+
+| Operation          | Endpoint                | Description                                            |
+|--------------------|-------------------------|--------------------------------------------------------|
+| **Create Users**.  | `POST /v1/invites/mint` | Mint invite codes for new users                        |
+| **Manage Clients** | `POST /v1/clients/*`    | Create additional OAuth2 clients for your applications |
+
+See the [Authentication Flows](/docs/auth/flows) documentation for detailed 
+examples.
+
+## Security Considerations
+
+The bootstrap endpoint performs multiple safety checks including empty database 
+verification, token validation, and executes all entity creation in a single 
+atomic transaction. If bootstrap fails partway through, the transaction rolls 
+back leaving the database empty for retry.
+
+The bootstrap token is single use and can't be used again after successful. But
+it would be wise to remove the `BOOTSTRAP_TOKEN` environment variable from your
+deployment configuration after bootstrap to prevent accidental reuse.
+
+**Post-Bootstrap Checklist:**
+
+| Action                       | Importance | Description                                                              |
+|------------------------------|------------|--------------------------------------------------------------------------|
+| **Secure client secret**     | Critical   | Store `client_secret` in a password manager or secrets vault immediately |
+| **Enable MFA**               | High       | Protect the admin account with multi-factor authentication               |
+| **Create additional admins** | High       | Don't rely on a single admin account for production                      |
+| **Remove bootstrap token**   | Medium     | Remove the `BOOTSTRAP_TOKEN` environment variable                        |
+| **Enable audit logging**     | Medium     | Track all admin operations for security monitoring                       |

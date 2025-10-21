@@ -1,0 +1,9 @@
+{
+  "defaultOpen": true,
+  "pages":[
+    "pkce",
+    "client",
+    "...",
+    "refresh"
+  ]
+}

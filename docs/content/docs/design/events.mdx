@@ -1,0 +1,316 @@
+---
+title: Events & Messages
+description: Event structure, types, and message payload specifications.
+---
+
+## Event Model
+
+The Chat Service is built around a **Write-Ahead Log (WAL)** of immutable
+events. Every action that occurs on the server—message sends, joins, leaves,
+reactions, and state updates—is represented as a discrete event stored in
+chronological order.
+
+This design makes the system deterministic and provides a solid foundation for
+future federation capabilities, where multiple servers need to agree on event
+ordering and state.
+
+<Callout type="warn" title="Design In Progress">
+  This specification is based roughly on the 
+  [Matrix protocol](https://spec.matrix.org/) but is not finalized. The event 
+  structure, types, and payloads are subject to change until we reach 
+  version 1.0. Expect iterations and breaking changes as the design evolves.
+</Callout>
+
+## Event Structure
+
+Each event is a JSON object containing metadata and content fields. All events
+are immutable and assigned lexicographically ordered **ULIDs** (Universally
+Unique Lexicographically Sortable Identifiers), ensuring monotonic sort order
+and distributed uniqueness.
+
+| Field       | Type    | Description                                         | Example                      |
+|-------------|---------|-----------------------------------------------------|------------------------------|
+| `event_id`  | ULID    | Unique, lexicographically sortable ID for ordering  | `01HZX1WNYVK2T69GPKJZV8Q5E3` |
+| `type`      | String  | Event type name (namespace-prefixed)                | `m.room.message`             |
+| `sender`    | ULID    | The user who generated the event                    | `01HZX1WNYVK2T69GPKJZV8Q5E3` |
+| `room_id`   | ULID    | Target room (null for global events)                | `01HZX1WNYVK2T69GPKJZV8Q5E3` |
+| `timestamp` | RFC3339 | UTC timestamp of the event                          | `2025-10-07T00:00:00Z`       |
+| `content`   | Object  | Event-specific payload                              | Varies by event type         |
+
+### Why ULID?
+
+ULIDs provide several advantages over alternatives like UUIDs or
+auto-incrementing integers:
+
+- **Lexicographic ordering**: Sorting by string comparison gives chronological
+  order without needing separate timestamp fields
+- **Time-based**: The first 48 bits encode millisecond timestamp, making them
+  useful for time-based queries
+- **No coordination**: Generated independently without central coordination or
+  collision risk
+- **URL-safe**: Base32 encoded, making them safe for URLs and filenames
+
+## Event Types
+
+Events use a namespaced type system. The `m.` prefix is borrowed from the
+Matrix specification for compatibility, but we may introduce our own namespace
+in the future.
+
+### Room State Events
+
+State events represent persistent room configuration and membership:
+
+| Event Type      | Description                                                                                    | 
+|-----------------|------------------------------------------------------------------------------------------------|
+| `m.room.create` | Initial creation event for a room, establishing the room's existence and initial configuration |
+| `m.room.name`   | Sets or updates the room's display name                                                        |
+| `m.room.member` | Member state events including join, leave, ban, and kick actions                               |
+
+### Message Events
+
+Message events represent user-generated content and interactions:
+
+| Event Type            | Description                                                           | Persistent?         |
+|-----------------------|-----------------------------------------------------------------------|---------------------|
+| `m.room.message`      | Text or media message (see payload formats below)                     | Yes                 |
+| `m.room.redaction`    | Removes content from a previous event while preserving event metadata | Yes                 |
+| `m.room.reaction`     | Reaction event referencing another message                            | Yes                 |
+| `m.room.read_receipt` | Indicates a user has read up to a given event                         | TBD                 |
+| `m.typing`            | Ephemeral typing indicator                                            | No (real-time only) |
+
+## Message Payloads
+
+The `m.room.message` event type has a variable payload structure depending on
+the `msgtype` field.
+
+### Implementation Priority
+
+| Priority | Message Type  | Status    | Description                   |
+|----------|---------------|-----------|-------------------------------|
+| 1        | `m.plain`     | MVP       | Plain text messages           |
+| 2        | `m.encrypted` | Future    | End-to-end encrypted messages |
+| 3        | `m.image`     | As needed | Image attachments             |
+| 3        | `m.file`      | As needed | Generic file attachments      |
+| 3        | `m.audio`     | As needed | Audio messages                |
+| 3        | `m.video`     | As needed | Video attachments             |
+
+### Plain Text Messages
+
+The simplest message type, used for MVP:
+
+```json
+{
+  "type": "m.room.message",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "msgtype": "m.plain",
+    "text": "Hello, world!"
+  }
+}
+```
+
+### Encrypted Messages
+
+Once E2EE is implemented using Olm or Megolm protocols:
+
+```json
+{
+  "type": "m.room.message",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "msgtype": "m.encrypted",
+    "algorithm": "m.olm.v1.curve25519-aes-sha2",
+    "ciphertext": "base64_encrypted_payload",
+    "session_id": "session_ulid",
+    "device_id": "device_ulid"
+  }
+}
+```
+
+**Encrypted Message Content Fields:**
+
+| Field        | Type   | Description                                                            |
+|--------------|--------|------------------------------------------------------------------------|
+| `msgtype`    | String | Always `m.encrypted`                                                   |
+| `algorithm`  | String | Encryption algorithm identifier (e.g., `m.olm.v1.curve25519-aes-sha2`) |
+| `ciphertext` | String | Base64-encoded encrypted payload                                       |
+| `session_id` | ULID   | Megolm session identifier for group messages                           |
+| `device_id`  | ULID   | Sending device identifier                                              |
+
+The encryption implementation will require additional endpoints for key
+exchange and device management. See the [Matrix E2EE implementation
+guide](https://matrix.org/docs/matrix-concepts/end-to-end-encryption) for
+reference.
+
+### Image Messages
+
+Images and other media reference URLs from the Media Service:
+
+```json
+{
+  "type": "m.room.message",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "msgtype": "m.image",
+    "url": "https://media.example.com/v1/media/XXXXXXXXXXXXXXX",
+    "alt_text": "A beautiful sunset",
+    "info": {
+      "mimetype": "image/jpeg",
+      "w": 1920,
+      "h": 1080,
+      "size": 245680
+    }
+  }
+}
+```
+
+**Image Message Content Fields:**
+
+| Field           | Type    | Description                                              |
+|-----------------|---------|----------------------------------------------------------|
+| `msgtype`       | String  | Always `m.image`                                         |
+| `url`           | String  | Media Service URL for the image                          |
+| `alt_text`      | String  | Alternative text description for accessibility           |
+| `info.mimetype` | String  | MIME type of the image (e.g., `image/jpeg`, `image/png`) |
+| `info.w`        | Integer | Image width in pixels                                    |
+| `info.h`        | Integer | Image height in pixels                                   |
+| `info.size`     | Integer | File size in bytes                                       |
+
+### File Messages
+
+Generic file attachments follow a similar pattern:
+
+```json
+{
+  "type": "m.room.message",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "msgtype": "m.file",
+    "filename": "document.pdf",
+    "url": "https://media.example.com/v1/media/YYYYYYYYYYYYYYY",
+    "info": {
+      "mimetype": "application/pdf",
+      "size": 1048576
+    }
+  }
+}
+```
+
+**File Message Content Fields:**
+
+| Field           | Type    | Description                    |
+|-----------------|---------|--------------------------------|
+| `msgtype`       | String  | Always `m.file`                |
+| `filename`      | String  | Original filename              |
+| `url`           | String  | Media Service URL for the file |
+| `info.mimetype` | String  | MIME type of the file          |
+| `info.size`     | Integer | File size in bytes             |
+
+## Reactions and Aggregation
+
+Reactions are represented as separate events that reference a target message:
+
+```json
+{
+  "type": "m.room.reaction",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "relates_to": {
+      "rel_type": "m.annotation",
+      "event_id": "target_event_ulid",
+      "key": "👍"
+    }
+  }
+}
+```
+
+**Reaction Content Fields:**
+
+| Field                 | Type   | Description                         |
+|-----------------------|--------|-------------------------------------|
+| `relates_to.rel_type` | String | Always `m.annotation` for reactions |
+| `relates_to.event_id` | ULID   | Target event being reacted to       |
+| `relates_to.key`      | String | Reaction emoji or text key          |
+
+When serving historical messages, the server should aggregate reactions per
+message to reduce client-side computation and provide a consistent view of
+reaction state.
+
+## Read Receipts
+
+Read receipts indicate that a user has read up to a certain event:
+
+```json
+{
+  "type": "m.room.read_receipt",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "event_id": "latest_read_event_ulid"
+  }
+}
+```
+
+**Read Receipt Content Fields:**
+
+| Field      | Type | Description                                 |
+|------------|------|---------------------------------------------|
+| `event_id` | ULID | Latest event the user has read in this room |
+
+These may or may not be stored persistently depending on implementation. If
+stored, they should be deduplicated per user per room.
+
+## Event Ordering and Consistency
+
+Events within a room are ordered by their ULID event_id. Clients can rely on
+lexicographic sorting to determine message order without needing to parse
+timestamps.
+
+For distributed or federated scenarios, events may arrive out of order. The
+WAL design allows for buffering and reordering based on event IDs before
+presentation to users.
+
+## Redactions
+
+Redaction events remove the content of a previous event while preserving its
+metadata:
+
+```json
+{
+  "type": "m.room.redaction",
+  "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "sender": "user_ulid",
+  "room_id": "room_ulid",
+  "timestamp": "2025-10-07T00:00:00Z",
+  "content": {
+    "redacts": "target_event_ulid",
+    "reason": "Spam"
+  }
+}
+```
+
+**Redaction Content Fields:**
+
+| Field     | Type   | Description                       |
+|-----------|--------|-----------------------------------|
+| `redacts` | ULID   | Event ID being redacted           |
+| `reason`  | String | Optional reason for the redaction |
+
+When serving a redacted event, the server replaces the original content with a
+placeholder while keeping the event structure intact.

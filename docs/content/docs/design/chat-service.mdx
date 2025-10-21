@@ -1,0 +1,260 @@
+---
+title: Chat Service
+description: Core chat functionality including rooms, messages, and real-time 
+  synchronization.
+---
+
+## Overview
+
+The Chat Service is the heart of the platform, handling all core chat
+functionality including room creation, message distribution, and event
+synchronization. It acts as the central event hub for authenticated users,
+managing the append-only log of events and providing both real-time and
+historical access to messages.
+
+All Chat Service operations require valid JWT tokens issued by the
+Authentication Service. The service validates tokens using the JWKS endpoint
+and enforces scope-based authorization for each operation.
+
+<Callout type="warn" title="Design In Progress">
+  This specification is based roughly on scribbled notes and ideas from a 
+  couple of drinks. It is not finalized. Design decisions around event
+  structure, delivery mechanisms, and API endpoints are subject to change until
+  we reach version 1.0. 
+</Callout>
+
+## Responsibilities
+
+- **Room Management**: Create, list, and delete rooms (admin operations)
+- **Message Handling**: Accept and distribute messages across rooms
+- **Event Storage**: Persist all events in an append-only log with ULID
+  ordering
+- **Real-time Sync**: Deliver new events to clients via long-polling `/sync`
+  endpoint
+- **History Pagination**: Serve historical messages with flexible bidirectional
+  pagination
+- **Membership**: Track room membership, joins, and leaves
+- **Authorization**: Enforce per-room and per-action permissions
+
+## API Endpoints
+
+### MVP Endpoints
+
+These endpoints provide the minimum viable functionality:
+
+- **`POST /v1/invites/redeem`**: Redeem invitation token (new user activation)
+- **`GET /v1/rooms`**: List all rooms (or user's joined rooms)
+- **`POST /v1/rooms`**: Create new room (admin-only for MVP)
+- **`GET /v1/rooms/{id}`**: Get room details and metadata
+- **`DELETE /v1/rooms/{id}`**: Delete room (admin-only)
+- **`GET /v1/rooms/{id}/messages`**: Retrieve paginated message history
+- **`POST /v1/rooms/{id}/messages`**: Send a message to a room
+- **`GET /v1/sync?timeout=30000`**: Long-poll for new events
+- **`GET /healthz`**: Liveness probe (200 OK if process is running)
+- **`GET /readyz`**: Readiness probe (200 OK when DB and dependencies are ready)
+- **`GET /.well-known`**: Service discovery (limits, capabilities, auth/media
+  locations)
+
+### Post-MVP Endpoints
+
+Additional functionality for enhanced user experience:
+
+- **`GET /v1/me`**: Get current user's profile and settings
+- **`POST /v1/rooms/{id}/join`**: Join a room
+- **`POST /v1/rooms/{id}/leave`**: Leave a room
+- **`GET /v1/rooms/{id}/members`**: List room members
+- **`DELETE /v1/rooms/{id}/members/{user_id}`**: Ban/kick user (admin-only)
+- **`POST /v1/rooms/{id}/messages/{event_id}/react`**: Add reaction to message
+- **`DELETE /v1/rooms/{id}/messages/{event_id}/react`**: Remove reaction
+- **`POST /v1/rooms/{id}/typing`**: Send ephemeral typing indicator (~3s
+  timeout)
+- **`POST /v1/rooms/{id}/read-receipts`**: Update read receipt to latest event
+
+## Live Messages via `/sync`
+
+The `/sync` endpoint uses **long polling** to deliver real-time events to
+clients. This design choice avoids the complexity of WebSockets while providing
+reliable, stateless event delivery.
+
+### Sync Request
+
+```http
+GET /v1/sync?since=<event_id>&timeout=30s
+Authorization: Bearer <jwt_token>
+```
+
+**Parameters:**
+
+- **`since`** (required): Event ID to start from; the server will return all
+  events after this ID
+- **`timeout`** (optional): How long to wait for new events before returning
+  (default: 30s, max: configurable)
+
+### Sync Behavior
+
+1. Client makes request with `since=<last_known_event_id>`
+2. Server checks for events newer than the provided event ID
+3. If events exist, server immediately returns them in a batch
+4. If no events exist, server holds the connection for up to `timeout` seconds
+5. Server returns either when new events arrive or timeout is reached
+6. Client processes events and makes a new request with updated `since`
+   parameter
+
+### Sync Response
+
+```json
+{
+  "next_batch": "01HZX2AAABBBCCCDDDEEEFFF",
+  "events": [
+    {
+      "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+      "type": "m.room.message",
+      "sender": "user_ulid",
+      "room_id": "room_ulid",
+      "timestamp": "2025-10-07T00:00:00Z",
+      "content": { ... }
+    }
+  ]
+}
+```
+
+The `next_batch` token should be used as the `since` parameter in the next sync
+request.
+
+### Filtering (Future Enhancement)
+
+For clients that only care about specific rooms, we may add a `filter`
+parameter:
+
+```http
+GET /v1/sync?since=<event_id>&timeout=30s&filter=room1,room2
+```
+
+This reduces bandwidth for clients participating in many rooms but only
+actively viewing a subset.
+
+## Historic Messages
+
+To reduce load on the `/sync` endpoint and allow efficient history browsing,
+the Chat Service provides a dedicated paginated history endpoint:
+
+```http
+GET /v1/rooms/{id}/messages?from=<event_id>&dir=[b|f]&limit=50
+Authorization: Bearer <jwt_token>
+```
+
+### Pagination Parameters
+
+- **`from`** (optional): Event ID to start pagination from; if omitted, starts
+  from the newest (dir=b) or oldest (dir=f) event
+- **`dir`** (required): Pagination direction
+  - `b` (backwards): Older messages, moving toward the beginning of history
+  - `f` (forwards): Newer messages, moving toward the end of history
+- **`limit`** (optional): Number of messages to return (default: 50, max:
+  configurable)
+
+### Aggregated Metadata
+
+When serving historical messages, the server should aggregate related events
+such as reactions and read receipts per message. This reduces the number of
+events clients need to process and ensures consistent presentation.
+
+Example aggregated response:
+
+```json
+{
+  "chunk": [
+    {
+      "event_id": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+      "type": "m.room.message",
+      "sender": "user_ulid",
+      "room_id": "room_ulid",
+      "timestamp": "2025-10-07T00:00:00Z",
+      "content": { ... },
+      "reactions": {
+        "👍": ["user1_ulid", "user2_ulid"],
+        "🎉": ["user3_ulid"]
+      }
+    }
+  ],
+  "start": "01HZX1WNYVK2T69GPKJZV8Q5E3",
+  "end": "01HZX0XXXXXXXXXXXXXXX"
+}
+```
+
+## Room and Membership Model
+
+### MVP Simplification
+
+For MVP, all users automatically join all rooms. This simplifies the
+implementation and focuses development on core messaging functionality.
+
+### Post-MVP Membership
+
+Once basic messaging is stable, we'll implement explicit room membership:
+
+- Users must explicitly join rooms to see messages
+- Room admins can invite, kick, or ban users
+- Membership events (`m.room.member`) track join/leave/ban/kick actions
+- Privacy controls allow private vs public rooms
+
+## Encryption Roadmap
+
+Initially, the Chat Service supports **unencrypted message events** using the
+`m.plain` message type. This allows us to validate core functionality—event
+storage, synchronization, and pagination—without the complexity of key
+management.
+
+### Phase 1: Plaintext (MVP)
+
+- All messages use `msgtype=m.plain`
+- Server can read message content for moderation and indexing
+- Simpler client implementation
+
+### Phase 2: End-to-End Encryption
+
+Once plaintext messaging is stable, we'll implement E2EE using:
+
+- **Olm**: Signal Protocol-like 1:1 encrypted messaging
+- **Megolm**: Matrix-style group encryption for rooms
+
+This will require:
+
+- New event types for encrypted payloads (`msgtype=m.encrypted`)
+- Key exchange endpoints for device-to-device communication
+- Device management for multi-device support
+- Backup and recovery mechanisms for encryption keys
+
+See the [Matrix E2EE implementation
+guide](https://matrix.org/docs/matrix-concepts/end-to-end-encryption) for
+detailed protocol specifications.
+
+## User Activation Flow
+
+New users must redeem an invitation token to activate their account:
+
+1. Admin generates invite via Auth Service `POST /v1/invites/mint` with server
+   ID and role
+2. New user signs up via Auth Service and receives JWT
+3. User calls `POST /v1/invites/redeem` on Chat Service with invite token?
+4. Chat Service activates the user's account for that server instance
+
+Until activation is complete, all Chat Service endpoints return `403 Forbidden`
+with a hint pointing to the redeem endpoint.
+
+## Well-Known Discovery
+
+The `/.well-known` endpoint advertises service capabilities:
+
+```json
+{
+  "auth_service": "https://auth.example.com",
+  "media_service": "https://media.example.com",
+  "max_message_size": 65536,
+  "sync_timeout_max": 60000,
+  "history_limit_max": 100
+}
+```
+
+This allows clients to discover related services and understand server limits
+before making requests.

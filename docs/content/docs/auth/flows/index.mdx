@@ -1,0 +1,127 @@
+---
+title: Authentication Flows
+description: Overview of all supported OAuth2 flows in the BarTAB authentication
+    service.
+---
+
+## Introduction
+
+The BarTAB auth service implements multiple OAuth2 flows to support different
+authentication scenarios. Each flow is designed for specific use cases and
+security requirements, from interactive user login to automated service
+authentication.
+
+## Available Flows
+
+### Authorization Code with PKCE
+
+The Authorization Code flow with Proof Key for Code Exchange (PKCE) is the
+recommended approach for authenticating users in web, CLI, and mobile
+applications. PKCE protects against authorization code interception attacks by
+requiring the client to prove it initiated the authorization request. 
+
+- Single-page applications (SPAs) running in the browser
+- Command-line tools that can open a browser window
+- Desktop applications with embedded browsers
+- Mobile applications on iOS or Android
+
+When a user has multi-factor authentication (MFA) enabled, the auth service
+prompts for an OTP code during the authorization process before issuing the
+authorization code. 
+
+[View detailed implementation...](/docs/auth/flows/pkce)
+
+### Client Credentials
+
+The Client Credentials flow enables machine-to-machine (M2M) authentication 
+where a confidential client authenticates using its client ID and secret to 
+obtain an access token. No user context or refresh tokens are involved.
+
+- Backend services that need to communicate with other services
+- Automated agents or bots
+
+[View detailed implementation...](/docs/auth/flows/client)
+
+### Refresh Token
+
+The refresh token flow allows clients to obtain new access tokens without
+requiring the user to re-authenticate. Each refresh operation rotates the
+refresh token, invalidating the previous one to prevent replay attacks.
+
+[View detailed implementation...](/docs/auth/flows/refresh)
+
+## Token Validation
+
+All flows issue JWT access tokens that downstream services can validate
+locally without calling the auth service. Tokens are signed with Ed25519
+keys and include standard claims plus custom BarTAB claims.
+
+### Token Structure
+
+Access tokens include the following claims:
+
+```json
+{
+  "iss": "https://auth.bartab.example.com",
+  "sub": "user_01HQXYZ...",
+  "aud": ["https://api.bartab.example.com"],
+  "exp": 1704067200,
+  "iat": 1704063600,
+  "nbf": 1704063600,
+  "jti": "token_01HQXYZ...",
+  "scope": "openid profile email",
+  "amr": ["pwd", "mfa"],
+  "client_id": "client_01HQXYZ...",
+  "roles": ["user", "admin"]
+}
+```
+
+### Validating Tokens
+
+Services should validate tokens using the public JWKS endpoint 
+`GET /.well-known/jwks.json` exposed by the auth service to verify
+signatures and check standard claims (issuer, audience, expiration). The 
+audience claim will contain the client's ID of the service the token was issued
+for. The following is an example JWKS response:
+
+```json
+{
+    "keys": [
+        {
+            "kty":"OKP",
+            "use":"sig",
+            "alg":"EdDSA",
+            "kid":"bartab-auth-key-001",
+            "crv":"Ed25519",
+            "x":"YrAOcDsVgXTxeH5xAl_1x1JLYGD0rPb45O4XmE-6cDY"
+        }
+    ]
+}
+```
+
+## Error Handling
+
+All flows return standardized OAuth2 error responses for common failure cases.
+
+### Common OAuth2 Errors
+
+- **`invalid_grant`**: The authorization code, refresh token, or credentials are
+invalid, expired, or have been revoked. The client should restart the
+authentication flow.
+- **`invalid_client`**: The client ID or secret is invalid, or the client is not
+authorized to use the requested grant type.
+- **`invalid_request`**: Required parameters are missing or malformed. Check the
+error description for specific details.
+- **`unauthorized_client`**: The client is not authorized to use the requested
+grant type or scopes.
+- **`unsupported_grant_type`**: The authorization server does not support the
+requested grant type.
+
+### Example Error Response
+
+```json
+{
+  "error": "invalid_grant",
+  "error_description": "The authorization code has expired"
+}
+```

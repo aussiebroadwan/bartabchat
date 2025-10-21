@@ -1,5 +1,5 @@
 {
-  "title": "Auth System",
+  "title": "Authentication System",
   "description": "The Authentication system for BarTAB",
   "icon": "Lock",
   "root": true

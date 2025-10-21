@@ -1,8 +1,91 @@
 ---
 title: Overview
-description: The Authentication system for BarTAB
+description: Centralized OAuth2 authentication and authorization service for
+    the BarTAB platform.
 ---
 
 ## Introduction
 
-Test info
+The BarTAB authentication service provides OAuth2-compatible identity and
+access management for both users and automated clients. It handles interactive
+login flows, multi-factor authentication, token issuance and validation, and
+exposes standards-compliant JWKS endpoints so downstream services can verify
+JWT access tokens without maintaining shared secrets.
+
+## Key Features
+
+The service implements **standards-based OAuth2** with Authorization Code + 
+PKCE for interactive user flows, ensuring secure user authentication with 
+protection against interception attacks.
+
+- **Multi-Factor Authentication**: is built-in, supporting time-based OTP and 
+    single use backup codes for accounts that require additional security 
+    beyond passwords.
+- **Client Credentials Grant**: enables secure machine-to-machine (M2M)
+    communication, allowing services to authenticate without user context.
+- **Role-Based Access Control** with granular scopes and permissions lets you 
+    define exactly what actions each user or service can perform.
+    
+See the [OAuth2 Flows](/docs/auth/flows) guide for implementation details and 
+sequence diagrams.
+
+## When to Use This Service
+
+The auth service is designed for scenarios where you need to 
+**authenticate users** in web, cli, and mobile applications with secure session 
+management and automatic token refresh. It will also be used to 
+**authenticate services** such as bots or anything that requires 
+service-to-service communication.
+
+Authenticated users can also have MFA setup for additional security, and 
+authenticating with it will add it as an
+**Authentication Method References (AMR)** value in the issued tokens. This will
+allow downstream services to enforce MFA requirements based on the presence of
+this claim.
+
+All tokens are JWTs signed with EDDSA using Ed25519 keys, and the public keys 
+are exposed via a JWKS endpoint so other services can validate them without 
+needing to share secrets.
+
+## Architecture at a Glance
+
+The service follows clean architecture principles with four distinct layers 
+that separate concerns and maintain clear boundaries.
+
+- The **HTTP layer** (`internal/auth/http`) exposes REST endpoints and handles 
+    routing, validation, and rate limiting before delegating to business logic.
+- The **service layer** (`internal/auth/service`) contains the core business 
+    logic for OAuth2 flows, user and client management, and security policy 
+    enforcement.
+- The **domain layer** (`internal/auth/domain`) defines core entities like 
+    users, roles, and tokens, keeping them independent of infrastructure 
+    concerns.
+- The **store layer** (`internal/auth/store`) abstracts data persistence, 
+    providing interfaces for user and token storage that can be implemented 
+    with different databases via different drivers. 
+    *Currently only supporting SQLite*.
+- The **SDK** (`pkg/authsdk`) provides a client library that other BarTAB 
+    components use to consume the auth service without duplicating request 
+    wiring. This also contains the REST Data Transfer Objects (DTOs) used by the
+    HTTP layer to keep API contracts consistent.
+
+For detailed architecture documentation, see 
+[Architecture](/docs/auth/architecture).
+
+## Getting Started
+
+1. Ensure Docker and Docker Compose are installed on the host machine.
+2. Copy `docker-compose.yaml` to your deployment directory and set the 
+    environment variables under the `auth` service. The required variables are:
+    - `AUTH_ISSUER`: The issuer claim for tokens
+    - `BOOTSTRAP_TOKEN`: An initial single use admin bootstrap token
+3. (Optional) Mount a host directory to `/data` if you want the SQLite 
+    database and pepper file to persist between restarts; the provided compose 
+    file already defines a named `auth-data` volume for this purpose.
+4. Build and launch the container:
+   ```bash
+   docker compose up --build auth
+   ```
+5. Once the container reports `auth service starting` in the logs, the API will 
+    be reachable at `http://localhost:8080` with Swagger UI available at
+    `/swagger/`.

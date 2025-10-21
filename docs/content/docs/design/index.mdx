@@ -1,8 +1,78 @@
 ---
-title: Introduction
-description: What is BarTAB 
+title: Overview
+description: Overview of the design principles and architecture of the BarTAB platform.
 ---
 
-## What is this?
 
-Test info
+## Introduction
+
+This project is a modular, service-oriented communication platform that brings
+together chat, media, and authentication into a cohesive, reliable ecosystem.
+It is designed to be extensible, privacy-respecting, and developer-friendly,
+attempting to be a modern foundation for real-time group communication services.
+
+At its core, the system aims to balance simplicity and scalability: a clean 
+architecture that can run as a single instance for small communities, yet scale 
+horizontally and adopt distributed patterns as usage grows. Though I don't have
+that much hope for how successful it would end up being at this.
+
+## Vision and Goals
+
+Our primary goal is to build a self-contained, modular chat system that is:
+
+- **Composable**: Each service (Auth, Chat, Media) can run independently or as
+  part of a unified deployment.
+- **Secure**: Strong authentication, scoped authorization, and modern
+  cryptographic practices are built in from day one.
+- **Transparent**: APIs follow open standards (OAuth2, OpenID Connect-style
+  JWT claims) and are documented with OpenAPI/Swagger.
+- **Developer-centric**: Easy to reason about, easy to deploy, and
+  straightforward to extend, whether you are building a frontend client, a
+  bot, or a new service.
+
+This design deliberately focuses on developer clarity over premature scaling. 
+Each subsystem should stand alone, use explicit data boundaries, and 
+communicate over clearly defined APIs or events.
+
+## Architectural Overview
+
+The platform is composed of several cooperating services:
+
+
+import { 
+    LockIcon, 
+    Disc3Icon, 
+    MessageSquareTextIcon, 
+    TerminalIcon 
+} from 'lucide-react';
+
+<Cards>
+    <Card title="Authentication Service" icon={<LockIcon />} href="/docs/auth">
+        Handles identity and authorization with OAuth2-style tokens, scopes, and
+        JWKS-based validation.
+    </Card>
+
+    <Card title="Chat Service" icon={<MessageSquareTextIcon />}>
+        Provides persistent messaging, channels, and presence. Built for 
+        consistency first, extensibility second.
+    </Card>
+
+    <Card title="Media Service" icon={<Disc3Icon />}>
+        Handles media upload, storage, and retrieval with token-based access 
+        control.
+    </Card>
+
+    <Card title="Frontend Clients" icon={<TerminalIcon />}>
+        Web, desktop, or mobile interfaces that communicate through the service 
+        APIs with real-time updates via WebSockets.
+    </Card>
+</Cards>
+
+
+### Summary
+
+This project's design is about building a foundation: not just a chat server,
+but a system of composable services that can evolve into a full-featured
+communication platform. Mainly so I can also just pilfer it for other projects.
+Each service is autonomous, reliable, and adheres to open standards, making it
+possible to deploy small, scale big, and integrate safely.

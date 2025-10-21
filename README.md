@@ -4,7 +4,7 @@ We use Discord. Or rather, we used to enjoy using Discord.
 
 Since Discord got bought out, it's been going downhill fast. Here in Australia, they're starting to roll-out requiring photos for prove age verification. The other week Discord had a data breach where this ID data was stolen. That's the final straw.
 
-As grass touching developers who are sick of this shit and want to go back to the time of monkey, we thought it would be funny (and useful) to build our own simpler version. The alternatives to Discord aren't great, and Discord basically has a monopoly on this space. So here we are... building a lightweight, self-hostable chat system that we actually control. Until we forget and drop the project (tm).
+As grass touching developers who are sick of this shit and want to go back to the time of monkey, we thought it would be funny (and useful) to build our own simpler version. The alternatives to Discord aren't great, and Discord basically has a monopoly on this space. So here we are... building a lightweight, self-hostable chat system that we actually control. Until we forget and drop the project :tm:.
 
 ## What We Are Attempting To Building
 
