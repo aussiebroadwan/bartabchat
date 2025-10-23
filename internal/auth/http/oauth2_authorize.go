@@ -73,7 +73,7 @@ func (h *AuthorizeHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		"error_description": "user authentication required",
 		"response_type":     authReq.ResponseType,
 		"client_id":         authReq.ClientID,
-		"redirect_uri":      authReq.RedirectURI,
+		"redirect_uri":      authReq.RedirectURI, // Note: This redirect_uri has not been validated at this point
 	}
 	if len(authReq.Scope) > 0 {
 		payload["scope"] = strings.Join(authReq.Scope, " ")
@@ -213,6 +213,21 @@ func (h *AuthorizeHandler) handleAuthorizeError(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// As per OAuth2 spec (RFC 6749, Section 3.1.2.3), if the 'redirect_uri' parameter
+	// is invalid or does not match a registered URI, the client MUST NOT automatically
+	// redirect the user-agent to the invalid redirection URI.
+	// An error message SHOULD be displayed to the user.
+	if errors.Is(err, service.ErrRedirectURIMismatch) {
+		oauthError := authsdk.NewOAuth2Error(
+			http.StatusBadRequest,
+			"invalid_request", // OAuth2 error code as per RFC 6749 Section 4.1.2.1
+			"The 'redirect_uri' parameter is invalid or does not match a registered URI for the client.", // Description
+		)
+		oauthError.WriteError(w) // Write JSON error directly, no redirect.
+		logger.Debug("authorize request failed due to redirect_uri_mismatch", slog.String("client_id", req.ClientID), slog.String("redirect_uri", req.RedirectURI))
+		return
+	}
+
 	// Map service errors to HTTP responses and optionally redirect
 	var (
 		oauthError *authsdk.OAuth2Error
@@ -259,6 +274,7 @@ func (h *AuthorizeHandler) handleAuthorizeError(w http.ResponseWriter, r *http.R
 	}
 
 	// For OAuth2 spec compliance, try to redirect errors to redirect_uri if available
+	// This branch is only taken if the error was NOT a redirect_uri_mismatch
 	if req.RedirectURI != "" && errorCode != "" {
 		redirectURL := buildErrorRedirect(req.RedirectURI, req.State, errorCode, oauthError)
 		if redirectURL != "" {
@@ -286,77 +302,88 @@ func (h *AuthorizeHandler) resolveSession(r *http.Request) *service.SessionConte
 	token := extractBearerToken(r)
 	if token == "" {
 		if cookie, err := r.Cookie(sessionCookieName); err == nil {
-			token = strings.TrimSpace(cookie.Value)
+			token = cookie.Value
 		}
 	}
 
-	if token == "" || h.Verifier == nil {
+	if token == "" {
 		return nil
 	}
 
 	claims, err := h.Verifier.Verify(token)
 	if err != nil {
-		h.logger().Debug("session verification failed", "error", err)
+		h.logger().Debug("failed to verify session token", "error", err)
 		return nil
 	}
 
-	return &service.SessionContext{
-		UserID:    claims.Subject,
-		SessionID: claims.SID,
-		AMR:       append([]string(nil), claims.AMR...),
-		Scopes:    append([]string(nil), claims.Scopes...),
+	userID, ok := claims.Subject()
+	if !ok || userID == "" {
+		h.logger().Warn("session token has no subject (user ID)")
+		return nil
 	}
-}
 
-func extractBearerToken(r *http.Request) string {
-	authz := r.Header.Get("Authorization")
-	if authz == "" {
-		return ""
+	session := &service.SessionContext{
+		UserID:    userID,
+		UserAgent: r.UserAgent(),
+		IPAddress: httpx.GetRemoteIP(r),
 	}
-	parts := strings.SplitN(authz, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
-}
-
-func buildAuthorizeRedirect(base, code, state string) (string, error) {
-	u, err := url.Parse(base)
-	if err != nil {
-		return "", err
-	}
-	q := u.Query()
-	q.Set("code", code)
-	if state != "" {
-		q.Set("state", state)
-	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
-}
-
-func buildErrorRedirect(base, state, errorCode string, oauthError *authsdk.OAuth2Error) string {
-	if base == "" {
-		return ""
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return ""
-	}
-	q := u.Query()
-	q.Set("error", errorCode)
-	if oauthError != nil {
-		q.Set("error_description", oauthError.Description)
-	}
-	if state != "" {
-		q.Set("state", state)
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
+	return session
 }
 
 func (h *AuthorizeHandler) logger() *slog.Logger {
 	if h.Logger != nil {
 		return h.Logger
 	}
-	return slogx.New(slogx.Config{Service: "auth-handler"})
+	return slogx.Discard()
+}
+
+// buildAuthorizeRedirect constructs a redirect URL for a successful authorization.
+func buildAuthorizeRedirect(baseURI, code, state string) (string, error) {
+	u, err := url.Parse(baseURI)
+	if err != nil {
+		return "", err
+	}
+
+	q := u.Query()
+	q.Set("code", code)
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+
+	return u.String(), nil
+}
+
+// buildErrorRedirect constructs a redirect URL for an OAuth2 error.
+// It returns an empty string if the baseURI is invalid.
+func buildErrorRedirect(baseURI, state, errorCode string, oauthError *authsdk.OAuth2Error) string {
+	u, err := url.Parse(baseURI)
+	if err != nil {
+		return ""
+	}
+
+	q := u.Query()
+	q.Set("error", errorCode)
+	if oauthError != nil && oauthError.Description != "" {
+		q.Set("error_description", oauthError.Description)
+	}
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+
+	return u.String()
+}
+
+// extractBearerToken extracts the bearer token from the Authorization header.
+func extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+		return parts[1]
+	}
+	return ""
 }
